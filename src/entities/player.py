@@ -101,17 +101,22 @@ class Player(Entity):
         self.survive_time += dt
         self._pulse        = (self._pulse + dt * 4) % (math.pi * 2)
 
-        # 移动
+        # 移动（惯性：加速/减速平滑插值）
         dx, dy = input_mgr.move_vector
         spd = self.stats.speed
-        self.vx = dx * spd
-        self.vy = dy * spd
+        target_vx = dx * spd
+        target_vy = dy * spd
+        moving = (dx != 0 or dy != 0)
+        # 加速比减速稍慢，产生"起步有重量感"
+        t = min(1.0, dt * (13.0 if moving else 20.0))
+        self.vx += (target_vx - self.vx) * t
+        self.vy += (target_vy - self.vy) * t
         self.x += self.vx * dt
         self.y += self.vy * dt
 
-        # 朝向（有移动时才更新）
-        if dx != 0 or dy != 0:
-            self._facing = math.atan2(dy, dx)
+        # 朝向（速度超过阈值时更新，避免停止时箭头乱转）
+        if abs(self.vx) > 15 or abs(self.vy) > 15:
+            self._facing = math.atan2(self.vy, self.vx)
 
         # HP 自然回复
         if self.stats.hp_regen > 0:
