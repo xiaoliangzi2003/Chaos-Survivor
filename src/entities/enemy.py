@@ -65,6 +65,9 @@ class Enemy(Entity):
 
         self._flash_timer: float = 0.0
         self.pending_spawns: list[tuple[str, float, float]] = []
+        # 状态效果
+        self._slow_timer: float = 0.0
+        self._slow_mul:   float = 1.0
 
     # ── 受伤 ──────────────────────────────────────────
     def take_damage(self, amount: float,
@@ -111,6 +114,15 @@ class Enemy(Entity):
         # AI（子类重写）
         self._ai(dt, player)
 
+        # 减速状态：ai 设置速度后乘以减速系数
+        if self._slow_timer > 0:
+            self._slow_timer -= dt
+            if self._slow_timer <= 0:
+                self._slow_mul = 1.0
+            else:
+                self.vx *= self._slow_mul
+                self.vy *= self._slow_mul
+
         # 位移
         self.x += (self.vx + self.kb_vx) * dt
         self.y += (self.vy + self.kb_vy) * dt
@@ -131,6 +143,8 @@ class Enemy(Entity):
         sx, sy = cam.world_to_screen(self.x, self.y)
         flash = self._flash_timer > 0
         self._draw_shape(surface, sx, sy, flash)
+        if self._slow_timer > 0:    # 减速蓝环
+            shapes.ring(surface, (100, 170, 255), sx, sy, self.radius + 2, 2)
         self._draw_hp_bar(surface, sx, sy)
 
     def _draw_shape(self, surface: pygame.Surface,
@@ -151,6 +165,12 @@ class Enemy(Entity):
                    (220, 60, 60), (60, 20, 20))
 
     # ── 工具 ──────────────────────────────────────────
+    def apply_slow(self, mul: float, duration: float) -> None:
+        """施加减速（叠加取最慢，时长取最长）。"""
+        if mul < self._slow_mul:
+            self._slow_mul = mul
+        self._slow_timer = max(self._slow_timer, duration)
+
     def dir_to_player(self, player) -> tuple[float, float]:
         dx = player.x - self.x
         dy = player.y - self.y
