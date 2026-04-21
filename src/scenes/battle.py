@@ -23,7 +23,7 @@ from src.core.config import (
     WHITE,
 )
 from src.core.gameplay_settings import get_settings
-from src.core.profile import clamp_difficulty
+from src.core.profile import clamp_difficulty, record_defeated_enemy
 from src.core.rng import rng
 from src.core.scene import Scene
 from src.entities.enemy import create_enemy
@@ -69,6 +69,7 @@ class BattleScene(Scene):
         self._font_large = get_font(52, bold=True)
         self._font_small = get_font(18)
         self._font_boss = get_font(24, bold=True)
+        self._font_timer = get_font(58, bold=True)
 
         self._map = MapRenderer(rng.choice(_THEME_NAMES), seed=rng.seed())
         self._bounds = self._map.world_bounds
@@ -324,12 +325,14 @@ class BattleScene(Scene):
             for spawn in getattr(enemy, "pending_spawns", []):
                 if len(keep) + len(self._enemies) < MAX_ENEMIES:
                     self._spawn_one(spawn)
+            self._record_enemy_unlock(enemy)
             self._player.kills += 1
             self._pickups.spawn_rewards(enemy.x, enemy.y, enemy.xp_drop, enemy.gold_drop)
         self._enemies = [enemy for enemy in self._enemies if enemy.alive]
 
     def _clear_wave_with_drops(self) -> None:
         for enemy in self._enemies:
+            self._record_enemy_unlock(enemy)
             self._player.kills += 1
             self._pickups.spawn_rewards(enemy.x, enemy.y, enemy.xp_drop, enemy.gold_drop)
         self._pickups.absorb_all(self._player, xp_ratio=0.25, gold_ratio=0.25)
@@ -337,6 +340,11 @@ class BattleScene(Scene):
         self._enemy_bullets.clear()
         self._hazards.clear()
         particles.burst(self._player.x, self._player.y, (255, 220, 120), count=20, speed=80, life=0.45, size=5)
+
+    def _record_enemy_unlock(self, enemy) -> None:
+        enemy_id = getattr(enemy, "enemy_id", "")
+        if enemy_id:
+            record_defeated_enemy(enemy_id)
 
     def _handle_pending_level_up(self) -> bool:
         if self._player.pending_level_ups <= 0:
@@ -495,30 +503,40 @@ class BattleScene(Scene):
 
         minutes = int(player.survive_time) // 60
         seconds = int(player.survive_time) % 60
-        surface.blit(fnt.render(f"{minutes:02d}:{seconds:02d}", True, WHITE), (SCREEN_WIDTH - 100, 14))
-        surface.blit(fnt.render(f"击杀 {player.kills}", True, (230, 190, 190)), (SCREEN_WIDTH - 150, 40))
-        surface.blit(fnt.render(f"难度 {DIFFICULTY_NAMES[self.difficulty]}", True, (255, 205, 90)), (SCREEN_WIDTH - 210, 66))
-        surface.blit(fnt.render(f"敌人 {len(self._enemies)}  掉落 {self._pickups.count}", True, (210, 165, 165)), (SCREEN_WIDTH - 250, 92))
-        surface.blit(fnt.render(f"敌方弹幕 {self._enemy_bullets.count}  危险区 {self._hazards.count}", True, (235, 145, 145)), (SCREEN_WIDTH - 275, 118))
+        surface.blit(fnt.render(f"生存 {minutes:02d}:{seconds:02d}", True, WHITE), (SCREEN_WIDTH - 160, 14))
+        surface.blit(fnt.render(f"击杀 {player.kills}", True, (230, 190, 190)), (SCREEN_WIDTH - 160, 40))
+        surface.blit(fnt.render(f"难度 {DIFFICULTY_NAMES[self.difficulty]}", True, (255, 205, 90)), (SCREEN_WIDTH - 228, 66))
+        surface.blit(fnt.render(f"敌人 {len(self._enemies)}  掉落 {self._pickups.count}", True, (210, 165, 165)), (SCREEN_WIDTH - 260, 92))
+        surface.blit(fnt.render(f"敌方弹幕 {self._enemy_bullets.count}  危险区 {self._hazards.count}", True, (235, 145, 145)), (SCREEN_WIDTH - 304, 118))
+
+        timer_box = pygame.Rect(SCREEN_WIDTH // 2 - 170, 10, 340, 62)
+        pygame.draw.rect(surface, (18, 24, 40), timer_box, border_radius=18)
+        pygame.draw.rect(surface, (255, 214, 96), timer_box, 2, border_radius=18)
 
         wave_label = f"第 {self._wave_system.current_wave} 波"
         if self._wave_system.is_break:
-            wave_label += " - 商店阶段"
+            wave_label += "  商店阶段"
         elif self._wave_system.is_boss_wave and self._active_boss() is not None:
-            wave_label += " - 首领战"
+            wave_label += "  Boss 战"
         elif self._wave_system.cleanup_mode:
-            wave_label += " - 清场中"
-        surface.blit(self._font_medium.render(wave_label, True, (255, 220, 120)), (14, 132))
+            wave_label += "  清场中"
+        wave_text = self._font_small.render(wave_label, True, (255, 230, 140))
+        surface.blit(wave_text, wave_text.get_rect(centerx=timer_box.centerx, y=15))
 
         if self._wave_system.is_boss_wave and self._active_boss() is not None:
-            time_text = "目标：击败首领"
+            timer_text = "击败首领"
+        elif self._wave_system.is_break:
+            timer_text = "商店中"
+        elif self._wave_system.cleanup_mode:
+            timer_text = "清场中"
         else:
-            time_text = f"剩余时间 {self._wave_system.time_left:04.1f} 秒"
-        surface.blit(self._font_small.render(time_text, True, (180, 180, 200)), (16, 166))
+            timer_text = f"{self._wave_system.time_left:04.1f}"
+        timer_render = self._font_timer.render(timer_text, True, WHITE)
+        surface.blit(timer_render, timer_render.get_rect(centerx=timer_box.centerx, centery=timer_box.centery + 9))
 
         if self._wave_system.banner.timer > 0:
             banner = self._font_medium.render(self._wave_system.banner.text, True, (255, 230, 120))
-            surface.blit(banner, banner.get_rect(centerx=SCREEN_WIDTH // 2, y=32))
+            surface.blit(banner, banner.get_rect(centerx=SCREEN_WIDTH // 2, y=126))
 
         if self._last_upgrade_text:
             tip = self._font_small.render(self._last_upgrade_text, True, (210, 225, 255))

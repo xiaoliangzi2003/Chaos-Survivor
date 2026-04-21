@@ -6,6 +6,7 @@ import pygame
 
 from src.core.bestiary import build_enemy_snapshot, list_bestiary_entries, render_enemy_portrait
 from src.core.config import SCREEN_HEIGHT, SCREEN_WIDTH, WHITE
+from src.core.profile import get_defeated_enemy_ids
 from src.core.scene import Scene
 from src.ui.fonts import get_font, wrap_text
 
@@ -19,6 +20,7 @@ _CATEGORY_COLORS = {
 class BestiaryScene(Scene):
     def on_enter(self, **kwargs) -> None:
         self._entries = list_bestiary_entries()
+        self._defeated_enemy_ids = get_defeated_enemy_ids()
         self._selected = 0
         self._scroll = 0
         self._visible_rows = 11
@@ -29,6 +31,7 @@ class BestiaryScene(Scene):
         self._body_font = get_font(18)
         self._small_font = get_font(17)
         self._hint_font = get_font(16)
+        self._locked_font = get_font(96, bold=True)
 
         self._portrait_cache: dict[str, pygame.Surface] = {}
         self._snapshot_cache: dict[str, object] = {}
@@ -79,7 +82,7 @@ class BestiaryScene(Scene):
         title = self._title_font.render("敌人图鉴", True, (255, 226, 118))
         surface.blit(title, title.get_rect(centerx=SCREEN_WIDTH // 2, y=20))
 
-        subtitle = self._body_font.render("查看所有小怪、精英与 Boss 的基础资料与程序绘制预览。", True, WHITE)
+        subtitle = self._body_font.render("未击败的敌人会以问号显示，击败后才会揭示真实资料。", True, WHITE)
         surface.blit(subtitle, subtitle.get_rect(centerx=SCREEN_WIDTH // 2, y=74))
 
         self._draw_action_button(surface, self._back_button(), "返回菜单", (255, 214, 96))
@@ -91,26 +94,35 @@ class BestiaryScene(Scene):
         pygame.draw.rect(surface, (22, 28, 46), detail_panel, border_radius=18)
         pygame.draw.rect(surface, (92, 112, 158), detail_panel, 2, border_radius=18)
 
-        total_label = self._small_font.render(f"已收录 {len(self._entries)} 种敌人", True, (190, 206, 235))
+        unlocked_count = sum(1 for entry in self._entries if self._is_unlocked(entry.enemy_id))
+        total_label = self._small_font.render(f"已解锁 {unlocked_count} / {len(self._entries)}", True, (190, 206, 235))
         surface.blit(total_label, (list_panel.x + 18, list_panel.y + 14))
 
         for index, rect in self._visible_row_rects():
             entry = self._entries[index]
+            unlocked = self._is_unlocked(entry.enemy_id)
             active = index == self._selected
             fill = (40, 50, 82) if active else (28, 34, 56)
+            if not unlocked:
+                fill = (34, 38, 52) if active else (24, 28, 40)
             border = (255, 216, 98) if active else (72, 86, 124)
             pygame.draw.rect(surface, fill, rect, border_radius=12)
             pygame.draw.rect(surface, border, rect, 2, border_radius=12)
 
-            name = self._row_font.render(entry.name, True, WHITE)
-            surface.blit(name, name.get_rect(midleft=(rect.x + 12, rect.centery)))
+            name = entry.name if unlocked else "？？？"
+            name_text = self._row_font.render(name, True, WHITE)
+            surface.blit(name_text, name_text.get_rect(midleft=(rect.x + 12, rect.centery)))
 
-            badge_color = _CATEGORY_COLORS[entry.category]
-            badge = pygame.Rect(rect.right - 72, rect.y + 8, 56, 22)
-            pygame.draw.rect(surface, (32, 40, 62), badge, border_radius=11)
-            pygame.draw.rect(surface, badge_color, badge, 2, border_radius=11)
-            badge_text = self._hint_font.render(entry.category, True, badge_color)
-            surface.blit(badge_text, badge_text.get_rect(center=badge.center))
+            if unlocked:
+                badge_color = _CATEGORY_COLORS[entry.category]
+                badge = pygame.Rect(rect.right - 72, rect.y + 8, 56, 22)
+                pygame.draw.rect(surface, (32, 40, 62), badge, border_radius=11)
+                pygame.draw.rect(surface, badge_color, badge, 2, border_radius=11)
+                badge_text = self._hint_font.render(entry.category, True, badge_color)
+                surface.blit(badge_text, badge_text.get_rect(center=badge.center))
+            else:
+                q_text = self._hint_font.render("?", True, (170, 180, 210))
+                surface.blit(q_text, q_text.get_rect(center=(rect.right - 44, rect.centery)))
 
         self._draw_detail(surface, detail_panel)
 
@@ -119,6 +131,10 @@ class BestiaryScene(Scene):
 
     def _draw_detail(self, surface: pygame.Surface, panel: pygame.Rect) -> None:
         entry = self._entries[self._selected]
+        if not self._is_unlocked(entry.enemy_id):
+            self._draw_locked_detail(surface, panel)
+            return
+
         snapshot = self._snapshot(entry.enemy_id)
 
         portrait_rect = pygame.Rect(panel.x + 22, panel.y + 22, 334, 236)
@@ -166,6 +182,36 @@ class BestiaryScene(Scene):
         self._draw_text_box(surface, left_desc, "敌人特征", entry.description)
         self._draw_text_box(surface, right_desc, "应对建议", entry.tips)
 
+    def _draw_locked_detail(self, surface: pygame.Surface, panel: pygame.Rect) -> None:
+        portrait_rect = pygame.Rect(panel.x + 22, panel.y + 22, 334, 236)
+        info_rect = pygame.Rect(panel.x + 378, panel.y + 24, 446, 226)
+        desc_rect = pygame.Rect(panel.x + 22, panel.y + 382, 808, 140)
+
+        pygame.draw.rect(surface, (30, 38, 62), portrait_rect, border_radius=16)
+        pygame.draw.rect(surface, (90, 106, 150), portrait_rect, 2, border_radius=16)
+        locked_mark = self._locked_font.render("?", True, (185, 198, 230))
+        surface.blit(locked_mark, locked_mark.get_rect(center=portrait_rect.center))
+
+        title = self._name_font.render("？？？", True, WHITE)
+        surface.blit(title, (info_rect.x, info_rect.y))
+
+        locked_text = self._small_font.render("未知敌人", True, (185, 198, 230))
+        surface.blit(locked_text, (info_rect.x, info_rect.y + 60))
+
+        tip_lines = wrap_text(
+            self._body_font,
+            "尚未击败该敌人，因此不会显示它的形象、类别、数值与战斗信息。",
+            info_rect.w,
+            max_lines=4,
+        )
+        current_y = info_rect.y + 102
+        for line in tip_lines:
+            body = self._body_font.render(line, True, WHITE)
+            surface.blit(body, (info_rect.x, current_y))
+            current_y += 24
+
+        self._draw_text_box(surface, desc_rect, "解锁方式", "在战斗中首次击败该敌人后，图鉴会永久解锁它的完整资料。")
+
     def _draw_text_box(self, surface: pygame.Surface, rect: pygame.Rect, title: str, text: str) -> None:
         pygame.draw.rect(surface, (30, 38, 62), rect, border_radius=16)
         pygame.draw.rect(surface, (92, 112, 156), rect, 2, border_radius=16)
@@ -193,6 +239,9 @@ class BestiaryScene(Scene):
             self._scroll = self._selected
         elif self._selected >= self._scroll + self._visible_rows:
             self._scroll = self._selected - self._visible_rows + 1
+
+    def _is_unlocked(self, enemy_id: str) -> bool:
+        return enemy_id in self._defeated_enemy_ids
 
     def _portrait(self, enemy_id: str) -> pygame.Surface:
         if enemy_id not in self._portrait_cache:

@@ -2394,4 +2394,6 @@ def create_enemy(etype: str, x: float, y: float, difficulty: int = 1, **kwargs) 
         else:
             kwargs.setdefault("size", "small")
     clean_kwargs = {key: value for key, value in kwargs.items() if value is not None}
-    return cls(x, y, difficulty, **clean_kwargs)
+    enemy = cls(x, y, difficulty, **clean_kwargs)
+    enemy.enemy_id = etype
+    return enemy

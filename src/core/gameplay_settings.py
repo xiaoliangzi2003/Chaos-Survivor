@@ -26,7 +26,7 @@ class GameplaySettings:
     enemy_damage_mul: float = 1.0
     enemy_speed_mul: float = 1.0
     enemy_count_mul: float = 1.0
-    gold_drop_mul: float = 2.0
+    gold_drop_mul: float = 1.0
     xp_gain_mul: float = 1.0
     player_hp_mul: float = 1.0
     player_damage_mul: float = 1.0

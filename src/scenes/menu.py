@@ -90,12 +90,9 @@ class MenuScene(Scene):
         self._draw_backdrop(surface)
 
         title = self._font_title.render("幸存者 3.0", True, GOLD)
-        surface.blit(title, title.get_rect(centerx=SCREEN_WIDTH // 2, y=62))
+        surface.blit(title, title.get_rect(centerx=SCREEN_WIDTH // 2, y=88))
 
-        subtitle = self._font_small.render("单局闭环试玩版", True, GRAY)
-        surface.blit(subtitle, subtitle.get_rect(centerx=SCREEN_WIDTH // 2, y=138))
-
-        panel = pygame.Rect(356, 206, 568, 352)
+        panel = pygame.Rect(356, 188, 568, 352)
         pygame.draw.rect(surface, (18, 24, 40), panel, border_radius=22)
         pygame.draw.rect(surface, (78, 90, 128), panel, 2, border_radius=22)
 
@@ -158,7 +155,7 @@ class MenuScene(Scene):
         width = 504
         height = 50
         gap = 12
-        start_y = 232
+        start_y = 214
         x = SCREEN_WIDTH // 2 - width // 2
         return [pygame.Rect(x, start_y + idx * (height + gap), width, height) for idx in range(len(self._items))]
 
