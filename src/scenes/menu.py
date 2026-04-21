@@ -13,11 +13,11 @@ from src.ui.fonts import get_font
 
 class MenuScene(Scene):
     def on_enter(self, **kwargs) -> None:
-        self._font_title = get_font(76, bold=True)
-        self._font_item = get_font(38)
-        self._font_small = get_font(24)
-        self._font_hint = get_font(18)
-        self._font_icon = get_font(20, bold=True)
+        self._font_title = get_font(72, bold=True)
+        self._font_item = get_font(32)
+        self._font_small = get_font(22)
+        self._font_hint = get_font(17)
+        self._font_icon = get_font(18, bold=True)
         self._items = ["开始游戏", "难度", "显示模式", "配置", "退出游戏"]
         self._selected = 0
         self._unlocked_difficulty = get_max_unlocked_difficulty()
@@ -90,14 +90,18 @@ class MenuScene(Scene):
         self._draw_backdrop(surface)
 
         title = self._font_title.render("幸存者 3.0", True, GOLD)
-        surface.blit(title, title.get_rect(centerx=SCREEN_WIDTH // 2, y=100))
+        surface.blit(title, title.get_rect(centerx=SCREEN_WIDTH // 2, y=62))
 
         subtitle = self._font_small.render("单局闭环试玩版", True, GRAY)
-        surface.blit(subtitle, subtitle.get_rect(centerx=SCREEN_WIDTH // 2, y=188))
+        surface.blit(subtitle, subtitle.get_rect(centerx=SCREEN_WIDTH // 2, y=138))
+
+        panel = pygame.Rect(356, 206, 568, 352)
+        pygame.draw.rect(surface, (18, 24, 40), panel, border_radius=22)
+        pygame.draw.rect(surface, (78, 90, 128), panel, 2, border_radius=22)
 
         for idx, (item, rect) in enumerate(zip(self._items, self._item_rects())):
             active = idx == self._selected
-            fill = (38, 44, 70) if active else (24, 28, 42)
+            fill = (38, 46, 74) if active else (24, 28, 42)
             border = GOLD if active else (78, 86, 118)
             pygame.draw.rect(surface, fill, rect, border_radius=14)
             pygame.draw.rect(surface, border, rect, 2, border_radius=14)
@@ -114,23 +118,26 @@ class MenuScene(Scene):
 
         unlocked_text = f"当前已解锁至：{DIFFICULTY_NAMES[self._unlocked_difficulty]}"
         unlocked = self._font_small.render(unlocked_text, True, (185, 210, 255))
-        surface.blit(unlocked, unlocked.get_rect(centerx=SCREEN_WIDTH // 2, y=SCREEN_HEIGHT - 118))
+        surface.blit(unlocked, unlocked.get_rect(centerx=SCREEN_WIDTH // 2, y=584))
 
         if self._unlocked_difficulty < len(DIFFICULTY_NAMES) - 1:
             next_name = DIFFICULTY_NAMES[self._unlocked_difficulty + 1]
             tip = f"通关当前最高难度后可解锁：{next_name}"
         else:
             tip = "所有难度均已解锁。"
-        tip_text = self._font_small.render(tip, True, (150, 170, 205))
-        surface.blit(tip_text, tip_text.get_rect(centerx=SCREEN_WIDTH // 2, y=SCREEN_HEIGHT - 86))
+        tip_text = self._font_hint.render(tip, True, (150, 170, 205))
+        surface.blit(tip_text, tip_text.get_rect(centerx=SCREEN_WIDTH // 2, y=620))
 
-        hint = self._font_hint.render("方向键或 WASD 选择，回车确认，B 可打开图鉴，F11 可切换全屏", True, (112, 122, 150))
-        surface.blit(hint, hint.get_rect(centerx=SCREEN_WIDTH // 2, y=SCREEN_HEIGHT - 46))
+        hint = self._font_hint.render("方向键或 WASD 选择，回车确认，B 打开图鉴，F11 切换全屏", True, (112, 122, 150))
+        surface.blit(hint, hint.get_rect(centerx=SCREEN_WIDTH // 2, y=686))
 
         icon_rect = self._bestiary_rect()
         draw_bestiary_icon(surface, icon_rect, active=self._bestiary_hover)
-        label = self._font_icon.render("图鉴", True, GOLD if self._bestiary_hover else WHITE)
-        surface.blit(label, label.get_rect(midleft=(icon_rect.right + 12, icon_rect.centery)))
+        label_color = GOLD if self._bestiary_hover else WHITE
+        label = self._font_icon.render("图鉴", True, label_color)
+        tip = self._font_hint.render("B", True, label_color)
+        surface.blit(label, (icon_rect.right + 12, icon_rect.y + 7))
+        surface.blit(tip, (icon_rect.right + 12, icon_rect.y + 30))
 
     def _open_bestiary(self) -> None:
         self.game.push_scene("bestiary")
@@ -148,12 +155,12 @@ class MenuScene(Scene):
         surface.blit(glow, (SCREEN_WIDTH - 470, 90))
 
     def _item_rects(self) -> list[pygame.Rect]:
-        width = 480
-        height = 56
-        gap = 18
-        start_y = 270
+        width = 504
+        height = 50
+        gap = 12
+        start_y = 232
         x = SCREEN_WIDTH // 2 - width // 2
         return [pygame.Rect(x, start_y + idx * (height + gap), width, height) for idx in range(len(self._items))]
 
     def _bestiary_rect(self) -> pygame.Rect:
-        return pygame.Rect(24, SCREEN_HEIGHT - 86, 60, 60)
+        return pygame.Rect(24, SCREEN_HEIGHT - 84, 56, 56)
