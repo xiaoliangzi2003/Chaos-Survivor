@@ -22,6 +22,7 @@ from src.core.config import (
     SCREEN_WIDTH,
     WHITE,
 )
+from src.core.profile import clamp_difficulty
 from src.core.rng import rng
 from src.core.scene import Scene
 from src.entities.enemy import create_enemy
@@ -60,7 +61,7 @@ _BOSS_ATTACK_LABELS = {
 
 class BattleScene(Scene):
     def on_enter(self, **kwargs) -> None:
-        self.difficulty = kwargs.get("difficulty", 1)
+        self.difficulty = clamp_difficulty(kwargs.get("difficulty", 0))
 
         self._font_hud = get_font(22)
         self._font_medium = get_font(30)
@@ -127,9 +128,10 @@ class BattleScene(Scene):
         self._update_wave(dt)
         self._update_enemies(dt)
         self._update_grid()
+        self._update_enemy_auras()
         self._update_weapons(dt)
         self._projectiles.update(dt, self._enemies, self._grid, self._bounds)
-        self._enemy_bullets.update(dt, self._player, self._bounds)
+        self._enemy_bullets.update(dt, self._player, self._hazards, self._bounds)
         self._check_player_enemy_collision()
         self._collect_dead()
         self._pickups.update(dt, self._player)
@@ -237,12 +239,35 @@ class BattleScene(Scene):
                     payload.pop("kind", None)
                     payload["x"], payload["y"] = self._clamp_position(payload["x"], payload["y"], payload["damage_radius"])
                     self._hazards.spawn_black_hole(**payload)
+                elif hazard.get("kind") == "fire_pool":
+                    payload = dict(hazard)
+                    payload.pop("kind", None)
+                    payload["x"], payload["y"] = self._clamp_position(payload["x"], payload["y"], payload["damage_radius"])
+                    self._hazards.spawn_fire_pit(**payload)
 
     def _update_grid(self) -> None:
         self._grid.clear()
         for enemy in self._enemies:
             if enemy.alive:
                 self._grid.insert(enemy)
+
+    def _update_enemy_auras(self) -> None:
+        for enemy in self._enemies:
+            enemy.damage_taken_mul = 1.0
+            enemy.shielded = False
+
+        for enemy in self._enemies:
+            radius = getattr(enemy, "shield_aura_radius", 0.0)
+            if not enemy.alive or radius <= 0:
+                continue
+            for target in self._grid.query_radius(enemy.x, enemy.y, radius):
+                if not target.alive or target is enemy:
+                    continue
+                dx = target.x - enemy.x
+                dy = target.y - enemy.y
+                if dx * dx + dy * dy <= radius * radius:
+                    target.damage_taken_mul = min(target.damage_taken_mul, 0.1)
+                    target.shielded = True
 
     def _update_weapons(self, dt: float) -> None:
         for weapon in self._player.weapons:

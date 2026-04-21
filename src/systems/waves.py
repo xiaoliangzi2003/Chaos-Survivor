@@ -1,4 +1,4 @@
-"""波次推进与刷怪调度。"""
+"""Wave progression and enemy spawn scheduling."""
 
 from __future__ import annotations
 
@@ -18,10 +18,14 @@ from src.core.rng import rng
 BOSS_POOL: tuple[str, ...] = (
     "storm_tyrant",
     "void_colossus",
+)
+
+ELITE_POOL: tuple[str, ...] = (
     "elite_summoner",
     "elite_berserker",
     "elite_assassin",
     "elite_sentinel",
+    "elite_missile_sniper",
 )
 
 
@@ -51,6 +55,7 @@ class WaveSystem:
         self.banner = WaveBanner("第 1 波开始")
 
         self._boss_spawned = False
+        self._elite_spawned = False
         self._current_boss_type: str | None = None
         self._used_bosses: set[str] = set()
 
@@ -61,6 +66,10 @@ class WaveSystem:
     @property
     def is_boss_wave(self) -> bool:
         return self.current_wave % BOSS_WAVE_INTERVAL == 0
+
+    @property
+    def is_elite_wave(self) -> bool:
+        return not self.is_boss_wave and self.current_wave % ELITE_WAVE_INTERVAL == 0
 
     @property
     def boss_rank(self) -> int:
@@ -135,12 +144,13 @@ class WaveSystem:
         self.time_in_state = 0.0
         self.spawn_timer = 0.0
         self._boss_spawned = False
+        self._elite_spawned = False
         self._current_boss_type = None
 
         title = f"第 {self.current_wave} 波开始"
         if self.is_boss_wave:
             title += "  首领来袭"
-        elif self.current_wave % ELITE_WAVE_INTERVAL == 0:
+        elif self.is_elite_wave:
             title += "  精英波"
         self.banner = WaveBanner(title)
 
@@ -167,6 +177,10 @@ class WaveSystem:
             return []
 
         spawns: list[str] = []
+        if self.is_elite_wave and not self._elite_spawned:
+            spawns.append(self._choose_elite_type())
+            self._elite_spawned = True
+
         self.spawn_timer += dt
         interval = max(0.17, 1.08 - self.current_wave * 0.03)
         interval /= max(0.8, DIFFICULTY_SETTINGS[self.difficulty]["count_mul"])
@@ -176,6 +190,17 @@ class WaveSystem:
             for _ in range(batch):
                 spawns.append(self._choose_enemy_type())
         return spawns
+
+    def _choose_elite_type(self) -> str:
+        if self.current_wave < 6:
+            return "elite_summoner"
+        if self.current_wave < 9:
+            return rng.choice(("elite_summoner", "elite_berserker"))
+        if self.current_wave < 12:
+            return rng.choice(("elite_summoner", "elite_berserker", "elite_assassin"))
+        if self.current_wave < 15:
+            return rng.choice(("elite_assassin", "elite_sentinel", "elite_missile_sniper"))
+        return rng.choice(ELITE_POOL)
 
     def _choose_enemy_type(self) -> str:
         roll = rng.random()
@@ -208,46 +233,50 @@ class WaveSystem:
                 return "blackhole_mage"
             if roll < 0.86:
                 return "line_raider"
-            if roll < 0.90:
+            if roll < 0.92:
                 return "wizard"
             return "gunner"
         if self.current_wave <= 11:
-            if roll < 0.16:
+            if roll < 0.14:
                 return "zombie"
-            if roll < 0.28:
+            if roll < 0.25:
                 return "speeder"
-            if roll < 0.38:
+            if roll < 0.35:
                 return "lancer"
-            if roll < 0.48:
+            if roll < 0.45:
                 return "wisp"
-            if roll < 0.58:
+            if roll < 0.56:
                 return "slime_large"
-            if roll < 0.66:
+            if roll < 0.63:
+                return "shield_caster"
+            if roll < 0.70:
                 return "blackhole_mage"
-            if roll < 0.74:
+            if roll < 0.77:
                 return "line_raider"
-            if roll < 0.82:
+            if roll < 0.85:
                 return "wizard"
-            if roll < 0.90:
+            if roll < 0.93:
                 return "gunner"
-            if roll < 0.96:
+            if roll < 0.97:
                 return "artillery"
             return "tank"
-        if roll < 0.12:
+        if roll < 0.10:
             return "zombie"
-        if roll < 0.22:
+        if roll < 0.19:
             return "speeder"
-        if roll < 0.30:
+        if roll < 0.28:
             return "lancer"
-        if roll < 0.40:
+        if roll < 0.37:
             return "wisp"
-        if roll < 0.52:
+        if roll < 0.48:
             return "slime_large"
-        if roll < 0.60:
+        if roll < 0.55:
+            return "shield_caster"
+        if roll < 0.62:
             return "blackhole_mage"
-        if roll < 0.68:
+        if roll < 0.69:
             return "line_raider"
-        if roll < 0.76:
+        if roll < 0.77:
             return "wizard"
         if roll < 0.86:
             return "gunner"

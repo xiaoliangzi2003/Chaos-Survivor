@@ -1,10 +1,11 @@
-"""主菜单场景。"""
+"""Main menu scene."""
 
 from __future__ import annotations
 
 import pygame
 
 from src.core.config import DIFFICULTY_NAMES, GOLD, GRAY, SCREEN_HEIGHT, SCREEN_WIDTH, WHITE
+from src.core.profile import clamp_difficulty, get_max_unlocked_difficulty
 from src.core.scene import Scene
 from src.ui.fonts import get_font
 
@@ -16,7 +17,9 @@ class MenuScene(Scene):
         self._font_small = get_font(28)
         self._items = ["开始游戏", "难度", "显示模式", "退出游戏"]
         self._selected = 0
-        self._difficulty = kwargs.get("difficulty", getattr(self, "_difficulty", 1))
+        self._unlocked_difficulty = get_max_unlocked_difficulty()
+        preferred = kwargs.get("difficulty", getattr(self, "_difficulty", 0))
+        self._difficulty = min(clamp_difficulty(preferred), self._unlocked_difficulty)
 
     def handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN:
@@ -36,7 +39,11 @@ class MenuScene(Scene):
     def _adjust_selected(self, delta: int) -> None:
         item = self._items[self._selected]
         if item == "难度":
-            self._difficulty = (self._difficulty + delta) % len(DIFFICULTY_NAMES)
+            unlocked = self._unlocked_difficulty
+            if unlocked <= 0:
+                self._difficulty = 0
+            else:
+                self._difficulty = max(0, min(unlocked, self._difficulty + delta))
         elif item == "显示模式":
             self.game.toggle_fullscreen(delta > 0 if delta != 0 else None)
 
@@ -45,7 +52,10 @@ class MenuScene(Scene):
         if choice == "开始游戏":
             self.game.set_scene("battle", difficulty=self._difficulty)
         elif choice == "难度":
-            self._difficulty = (self._difficulty + 1) % len(DIFFICULTY_NAMES)
+            if self._difficulty >= self._unlocked_difficulty:
+                self._difficulty = 0
+            else:
+                self._difficulty += 1
         elif choice == "显示模式":
             self.game.toggle_fullscreen()
         else:
@@ -90,5 +100,14 @@ class MenuScene(Scene):
                     ],
                 )
 
+        unlocked_text = f"当前已解锁至：{DIFFICULTY_NAMES[self._unlocked_difficulty]}"
+        surface.blit(self._font_small.render(unlocked_text, True, (180, 205, 255)), (SCREEN_WIDTH // 2 - 170, SCREEN_HEIGHT - 118))
+        if self._unlocked_difficulty < len(DIFFICULTY_NAMES) - 1:
+            next_name = DIFFICULTY_NAMES[self._unlocked_difficulty + 1]
+            tip = f"通关当前最高难度后可解锁：{next_name}"
+        else:
+            tip = "所有难度均已解锁"
+        surface.blit(self._font_small.render(tip, True, (150, 170, 205)), (SCREEN_WIDTH // 2 - 210, SCREEN_HEIGHT - 86))
+
         hint = self._font_small.render("方向键或 WASD 选择，回车确认，F11 也可切换全屏", True, (110, 110, 140))
-        surface.blit(hint, hint.get_rect(centerx=SCREEN_WIDTH // 2, y=SCREEN_HEIGHT - 56))
+        surface.blit(hint, hint.get_rect(centerx=SCREEN_WIDTH // 2, y=SCREEN_HEIGHT - 50))

@@ -50,6 +50,8 @@ class Enemy(Entity):
         self.attack_label = ""
         self.contact_damage = True
         self.ignore_world_clamp = False
+        self.damage_taken_mul = 1.0
+        self.shielded = False
 
         self.vx = 0.0
         self.vy = 0.0
@@ -66,6 +68,7 @@ class Enemy(Entity):
         self.pending_hazards: list[dict] = []
 
     def take_damage(self, amount: float, angle: float = 0.0, kb_force: float = 150.0) -> bool:
+        amount *= self.damage_taken_mul
         self.hp -= amount
         self._flash_timer = self.HIT_FLASH
         self._hit_burst = 1.0
@@ -132,6 +135,10 @@ class Enemy(Entity):
         flash = self._flash_timer > 0
         self._draw_shadow(surface, sx, sy)
         self._draw_shape(surface, sx, sy, flash)
+        if self.shielded:
+            shield_color = (120, 200, 255)
+            shapes.ring(surface, shield_color, sx, sy, self.radius + 7, 2)
+            shapes.ring(surface, shield_color, sx, sy, self.radius + 11, 1)
         if self._slow_timer > 0:
             shapes.ring(surface, (100, 170, 255), sx, sy, self.radius + 4, 2)
         self._draw_hp_bar(surface, sx, sy)
@@ -405,9 +412,9 @@ class WispEnemy(Enemy):
 
 class SlimeEnemy(Enemy):
     _SIZE_DATA = {
-        "large": {"hp": 68, "speed": 52, "damage": 12, "radius": 26, "xp": 7, "gold": 3, "children": ("medium", 3)},
-        "medium": {"hp": 30, "speed": 72, "damage": 8, "radius": 18, "xp": 4, "gold": 1, "children": ("small", 3)},
-        "small": {"hp": 12, "speed": 102, "damage": 5, "radius": 11, "xp": 2, "gold": 0, "children": None},
+        "large": {"hp": 68, "speed": 86, "damage": 12, "radius": 26, "xp": 7, "gold": 3, "children": ("medium", 3)},
+        "medium": {"hp": 30, "speed": 124, "damage": 8, "radius": 18, "xp": 4, "gold": 1, "children": ("small", 3)},
+        "small": {"hp": 12, "speed": 178, "damage": 5, "radius": 11, "xp": 2, "gold": 0, "children": None},
     }
     _COLOR_POOL = (
         (120, 230, 120),
@@ -716,6 +723,155 @@ class LineRaiderEnemy(Enemy):
         shapes.polygon(surface, color, [head, left, tail, right])
         shapes.polygon(surface, glow, [head, left, tail, right], width=2)
         shapes.line(surface, glow, tail[0], tail[1], head[0], head[1], 2)
+
+
+class ShieldCasterEnemy(Enemy):
+    _BASE = dict(max_hp=58, speed=68, damage=0, radius=16, color=(110, 205, 255), xp_drop=7, gold_drop=2, knockback_resist=0.08)
+    _IDEAL_DIST = 250.0
+    _AURA_RADIUS = 170.0
+
+    def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
+        d = DIFFICULTY_SETTINGS[difficulty]
+        b = self._BASE
+        super().__init__(x, y, b["max_hp"] * d["hp_mul"], b["speed"], b["damage"], b["radius"], b["color"], max(1, int(b["xp_drop"] * d["reward_mul"])), b["gold_drop"], b["knockback_resist"])
+        self.contact_damage = False
+        self.shield_aura_radius = self._AURA_RADIUS
+
+    def _ai(self, dt: float, player) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        orbit = math.atan2(dy, dx) + math.pi / 2
+
+        if dist < self._IDEAL_DIST * 0.72:
+            self.vx = -dx / dist * self.speed
+            self.vy = -dy / dist * self.speed
+        elif dist > self._IDEAL_DIST * 1.25:
+            self.vx = dx / dist * self.speed * 0.65
+            self.vy = dy / dist * self.speed * 0.65
+        else:
+            self.vx = math.cos(orbit) * self.speed * 0.7
+            self.vy = math.sin(orbit) * self.speed * 0.7
+
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        r = self.radius * (1.0 + math.sin(self._anim_t * 1.5) * 0.06 + self._hit_burst * 0.14)
+        color = (255, 255, 255) if flash else self.color
+        glow = (190, 235, 255)
+        shapes.glow_circle(surface, color, sx, sy, r * 1.05, layers=3, alpha_start=36)
+        shapes.circle(surface, color, sx, sy, r * 0.9)
+        shapes.circle(surface, (30, 70, 110), sx, sy, r * 0.42)
+        for idx in range(3):
+            angle = self._anim_t * 1.7 + idx * math.tau / 3
+            ox = sx + math.cos(angle) * r * 1.25
+            oy = sy + math.sin(angle) * r * 1.25
+            shapes.diamond(surface, glow, ox, oy, 4.5, 7.0)
+        shapes.ring(surface, glow, sx, sy, self.shield_aura_radius * 0.35, 2)
+
+
+class EliteMissileSniper(Enemy):
+    _BASE = dict(max_hp=165, speed=58, damage=18, radius=20, color=(255, 120, 70), xp_drop=18, gold_drop=7, knockback_resist=0.3)
+    _IDEAL_DIST = 360.0
+    _CHARGE_TIME = 1.0
+    _SHOT_CD = 4.8
+
+    def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
+        d = DIFFICULTY_SETTINGS[difficulty]
+        b = self._BASE
+        super().__init__(
+            x,
+            y,
+            b["max_hp"] * d["hp_mul"],
+            b["speed"],
+            b["damage"] * d["dmg_mul"],
+            b["radius"],
+            b["color"],
+            max(1, int(b["xp_drop"] * d["reward_mul"])),
+            int(b["gold_drop"] * d["reward_mul"]),
+            b["knockback_resist"],
+        )
+        self.max_hp *= _ELITE_HP * 0.9
+        self.hp = self.max_hp
+        self.damage *= _ELITE_DMG * 0.95
+        self.radius = int(self.radius * _ELITE_RAD)
+        self.xp_drop = int(self.xp_drop * _ELITE_RWD * 0.8)
+        self.gold_drop = int(self.gold_drop * _ELITE_RWD * 0.8)
+        self._shot_timer = self._SHOT_CD * 0.55
+        self._charge_timer = 0.0
+        self._charging = False
+
+    def _ai(self, dt: float, player) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        angle_to_player = math.atan2(dy, dx)
+
+        if self._charging:
+            self.vx = math.cos(angle_to_player + math.pi / 2) * self.speed * 0.2
+            self.vy = math.sin(angle_to_player + math.pi / 2) * self.speed * 0.2
+            self._charge_timer += dt
+            if self._charge_timer >= self._CHARGE_TIME:
+                self._charging = False
+                self._shot_timer = self._SHOT_CD
+                self._fire_missile(player)
+            return
+
+        if dist < self._IDEAL_DIST * 0.7:
+            self.vx = -dx / dist * self.speed
+            self.vy = -dy / dist * self.speed
+        elif dist > self._IDEAL_DIST * 1.15:
+            self.vx = dx / dist * self.speed * 0.65
+            self.vy = dy / dist * self.speed * 0.65
+        else:
+            orbit = angle_to_player + math.pi / 2
+            self.vx = math.cos(orbit) * self.speed * 0.55
+            self.vy = math.sin(orbit) * self.speed * 0.55
+
+        self._shot_timer -= dt
+        if self._shot_timer <= 0:
+            self._charging = True
+            self._charge_timer = 0.0
+
+    def _fire_missile(self, player) -> None:
+        angle = math.atan2(player.y - self.y, player.x - self.x)
+        self.pending_projectiles.append(
+            {
+                "x": self.x,
+                "y": self.y,
+                "vx": math.cos(angle) * 175.0,
+                "vy": math.sin(angle) * 175.0,
+                "damage": self.damage,
+                "life": 5.2,
+                "radius": 9.0,
+                "color": (255, 145, 80),
+                "shape": "missile",
+                "tracking": True,
+                "turn_speed": 1.45,
+                "explode_fire": {
+                    "life": 4.6,
+                    "damage_radius": 44,
+                    "dps": self.damage * 0.95,
+                    "color": (255, 115, 55),
+                },
+                "burst_count": 14,
+            }
+        )
+        particles.directional(self.x, self.y, angle, 0.25, (255, 170, 90), count=8, speed=75, life=0.24)
+
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        r = self.radius * (1.0 + self._hit_burst * 0.14)
+        color = (255, 255, 255) if flash else self.color
+        dark = (120, 45, 20)
+        angle = math.atan2(self.vy or 0.01, self.vx or 0.01)
+        shapes.glow_circle(surface, color, sx, sy, r * 0.95, layers=2, alpha_start=34)
+        shapes.regular_polygon(surface, color, sx, sy, r, 6, self._anim_t * 0.35)
+        shapes.regular_polygon(surface, dark, sx, sy, r, 6, self._anim_t * 0.35, width=2)
+        barrel_len = r * (2.1 if not self._charging else 2.6)
+        bx = sx + math.cos(angle) * barrel_len
+        by = sy + math.sin(angle) * barrel_len
+        shapes.line(surface, dark, sx, sy, bx, by, 4)
+        if self._charging:
+            shapes.glow_circle(surface, (255, 220, 140), bx, by, r * 0.6, layers=2, alpha_start=44)
+            shapes.circle(surface, (255, 220, 140), bx, by, r * 0.34)
 
 
 class TankEnemy(Enemy):
@@ -1343,6 +1499,7 @@ _NORMAL_MAP: dict[str, type] = {
     "slime_medium": SlimeEnemy,
     "slime_small": SlimeEnemy,
     "blackhole_mage": BlackHoleMage,
+    "shield_caster": ShieldCasterEnemy,
     "line_raider": LineRaiderEnemy,
     "tank": TankEnemy,
     "wizard": WizardEnemy,
@@ -1358,6 +1515,7 @@ _ELITE_MAP: dict[str, type] = {
     "elite_berserker": EliteBerserker,
     "elite_assassin": EliteAssassin,
     "elite_sentinel": EliteSentinel,
+    "elite_missile_sniper": EliteMissileSniper,
 }
 
 ALL_ENEMY_TYPES = list(_NORMAL_MAP.keys())
