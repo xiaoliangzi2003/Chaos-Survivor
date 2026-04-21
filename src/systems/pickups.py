@@ -9,6 +9,7 @@ import pygame
 
 from src.core.camera import Camera
 from src.core.config import XP_GEM_VALUES
+from src.core.gameplay_settings import get_settings
 from src.render import shapes
 from src.render.particles import particles
 
@@ -88,10 +89,14 @@ class PickupSystem:
         self._items: list[Pickup] = []
 
     def spawn_rewards(self, x: float, y: float, xp_value: int, gold_value: int) -> None:
-        for kind, value in _split_xp_value(xp_value):
+        settings = get_settings()
+        xp_total = max(0, int(round(xp_value * settings.xp_gain_mul)))
+        gold_total = max(0, int(round(gold_value * settings.gold_drop_mul)))
+
+        for kind, value in _split_xp_value(xp_total):
             self._items.append(self._make_pickup(kind, value, x, y))
-        if gold_value > 0:
-            self._items.append(self._make_pickup("gold", gold_value, x, y))
+        if gold_total > 0:
+            self._items.append(self._make_pickup("gold", gold_total, x, y))
 
     def update(self, dt: float, player) -> None:
         keep: list[Pickup] = []

@@ -13,6 +13,7 @@ from src.core.config import (
     WAVE_BREAK_DURATION,
     WAVE_DURATION_INC,
 )
+from src.core.gameplay_settings import get_settings
 from src.core.rng import rng
 
 BOSS_POOL: tuple[str, ...] = (
@@ -173,7 +174,8 @@ class WaveSystem:
         return boss_type
 
     def _normal_wave_spawns(self, dt: float, alive_count: int) -> list[str]:
-        cap = int(34 + self.current_wave * 10 * DIFFICULTY_SETTINGS[self.difficulty]["count_mul"])
+        count_scale = DIFFICULTY_SETTINGS[self.difficulty]["count_mul"] * get_settings().enemy_count_mul
+        cap = int(34 + self.current_wave * 10 * count_scale)
         if alive_count >= cap:
             return []
 
@@ -184,7 +186,7 @@ class WaveSystem:
 
         self.spawn_timer += dt
         interval = max(0.17, 1.08 - self.current_wave * 0.03)
-        interval /= max(0.8, DIFFICULTY_SETTINGS[self.difficulty]["count_mul"])
+        interval /= max(0.45, count_scale)
         while self.spawn_timer >= interval:
             self.spawn_timer -= interval
             batch = 1 + (1 if self.current_wave >= 8 and rng.chance(0.45) else 0)

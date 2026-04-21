@@ -22,6 +22,7 @@ from src.core.config import (
     SCREEN_WIDTH,
     WHITE,
 )
+from src.core.gameplay_settings import get_settings
 from src.core.profile import clamp_difficulty
 from src.core.rng import rng
 from src.core.scene import Scene
@@ -72,6 +73,7 @@ class BattleScene(Scene):
         self._map = MapRenderer(rng.choice(_THEME_NAMES), seed=rng.seed())
         self._bounds = self._map.world_bounds
         self._player = Player(0.0, 0.0)
+        self._apply_runtime_settings()
         self._player.combat_feedback = self._handle_combat_feedback
         for weapon_id in STARTING_WEAPON_IDS:
             self._player.add_weapon(create_weapon(weapon_id))
@@ -100,6 +102,15 @@ class BattleScene(Scene):
 
         self._red_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
         camera.update(0, 0, 0, bounds=self._bounds)
+
+    def _apply_runtime_settings(self) -> None:
+        settings = get_settings()
+        self._player.stats.max_hp = max(1.0, self._player.stats.max_hp * settings.player_hp_mul)
+        self._player.hp = self._player.stats.max_hp
+        self._player.stats.speed = max(60.0, self._player.stats.speed * settings.player_speed_mul)
+        self._player.stats.atk_mul *= settings.player_damage_mul
+        self._player.stats.atk_speed_mul *= settings.player_attack_speed_mul
+        self._player.stats.pickup_radius = max(20.0, self._player.stats.pickup_radius * settings.player_pickup_radius_mul)
 
     def handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN and event.key in (pygame.K_ESCAPE, pygame.K_p):

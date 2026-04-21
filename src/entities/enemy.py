@@ -7,6 +7,7 @@ import math
 import pygame
 
 from src.core.config import DIFFICULTY_SETTINGS
+from src.core.gameplay_settings import get_settings
 from src.core.rng import rng
 from src.entities.entity import Entity
 from src.render import shapes
@@ -57,10 +58,11 @@ class Enemy(Entity):
         knockback_resist: float = 0.0,
     ) -> None:
         super().__init__(x, y, radius)
-        self.max_hp = max_hp
-        self.hp = max_hp
-        self.speed = speed
-        self.damage = damage
+        settings = get_settings()
+        self.max_hp = max(1.0, max_hp * settings.enemy_hp_mul)
+        self.hp = self.max_hp
+        self.speed = max(0.0, speed * settings.enemy_speed_mul)
+        self.damage = max(0.0, damage * settings.enemy_damage_mul)
         self.color = color
         self.xp_drop = xp_drop
         self.gold_drop = gold_drop

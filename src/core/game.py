@@ -8,6 +8,7 @@ import pygame
 
 from src.core.camera import camera
 from src.core.config import FPS, SCREEN_HEIGHT, SCREEN_WIDTH, TITLE
+from src.core.gameplay_settings import get_settings
 from src.core.input import input_mgr
 from src.core.scene import Scene
 from src.ui.fonts import get_font
@@ -31,6 +32,7 @@ class Game:
         self._scenes: dict[str, Scene] = {}
         self._scene_stack: list[Scene] = []
         self._current_name = ""
+        self.gameplay_settings = get_settings()
 
         self._register_scenes()
 
@@ -60,6 +62,7 @@ class Game:
         from src.scenes.menu import MenuScene
         from src.scenes.pause import PauseScene
         from src.scenes.result import ResultScene
+        from src.scenes.settings import SettingsScene
         from src.scenes.shop import ShopScene
         from src.scenes.upgrade import UpgradeScene
 
@@ -69,6 +72,7 @@ class Game:
             "pause": PauseScene(self),
             "upgrade": UpgradeScene(self),
             "shop": ShopScene(self),
+            "settings": SettingsScene(self),
             "result": ResultScene(self),
         }
 

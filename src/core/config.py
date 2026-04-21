@@ -1,9 +1,10 @@
-"""全局常量与平衡配置。"""
+"""全局常量与基础平衡配置。"""
 
 SCREEN_WIDTH = 1280
 SCREEN_HEIGHT = 720
 FPS = 60
 TITLE = "幸存者 3.0"
+
 WORLD_WIDTH = 3600
 WORLD_HEIGHT = 2400
 WORLD_LEFT = -WORLD_WIDTH / 2
