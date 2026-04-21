@@ -34,15 +34,16 @@ class ShopOffer:
 
 
 _SHOP_POOL = [
-    ("heal_patch", "战地绷带", "立即回复 40 点生命。", "common", 16, {"heal": 40}),
-    ("max_hp", "巨像骨架", "最大生命值永久提高 20。", "common", 24, {"max_hp": 20}),
+    ("heal_patch", "战地绷带", "立刻回复 40 点生命。", "common", 16, {"heal": 40}),
+    ("max_hp", "巨像骨架", "最大生命永久提高 20。", "common", 24, {"max_hp": 20}),
     ("attack", "锋刃刻印", "伤害提高 12%。", "uncommon", 26, {"atk_mul": 0.12}),
     ("speed", "速射扳机", "攻击速度提高 15%。", "uncommon", 24, {"atk_speed_mul": 0.15}),
+    ("move_speed", "疾风胫甲", "移动速度永久提高 26。", "uncommon", 24, {"move_speed": 26}),
     ("range", "聚焦线圈", "武器范围提高 15%。", "common", 20, {"range_mul": 0.15}),
     ("armor", "铁壁装甲", "护甲提高 1 点。", "uncommon", 25, {"armor": 1}),
     ("pickup", "磁暴吸环", "拾取范围提高 28。", "common", 18, {"pickup_radius": 28}),
     ("crit", "幸运徽记", "暴击率提高 6%。", "rare", 34, {"crit_rate": 0.06}),
-    ("projectile", "分裂弹膛", "额外投射物 +1。", "rare", 42, {"proj_bonus": 1}),
+    ("projectile", "分裂弹巢", "额外投射物 +1。", "rare", 42, {"proj_bonus": 1}),
     ("gold", "黄金钩爪", "金币收益提高 20%。", "common", 18, {"gold_mul": 0.20}),
 ]
 
@@ -83,6 +84,8 @@ def apply_shop_offer(player, offer: ShopOffer) -> str:
         player.stats.atk_mul += payload["atk_mul"]
     if "atk_speed_mul" in payload:
         player.stats.atk_speed_mul += payload["atk_speed_mul"]
+    if "move_speed" in payload:
+        player.stats.speed += payload["move_speed"]
     if "range_mul" in payload:
         player.stats.range_mul += payload["range_mul"]
     if "armor" in payload:

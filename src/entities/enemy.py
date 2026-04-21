@@ -73,6 +73,7 @@ class Enemy(Entity):
         self.invulnerable = False
         self.damage_taken_mul = 1.0
         self.shielded = False
+        self.last_damage_taken = 0.0
 
         self.vx = 0.0
         self.vy = 0.0
@@ -90,8 +91,10 @@ class Enemy(Entity):
 
     def take_damage(self, amount: float, angle: float = 0.0, kb_force: float = 150.0) -> bool:
         if self.invulnerable:
+            self.last_damage_taken = 0.0
             return False
         amount *= self.damage_taken_mul
+        self.last_damage_taken = min(self.hp, max(0.0, amount))
         self.hp -= amount
         self._flash_timer = self.HIT_FLASH
         self._hit_burst = 1.0
@@ -105,6 +108,11 @@ class Enemy(Entity):
             self._on_death()
             return True
         return False
+
+    def collision_nodes(self) -> list[tuple[float, float, float, float]]:
+        if not self.alive or not self.contact_damage:
+            return []
+        return [(self.x, self.y, self.radius, self.damage)]
 
     def _on_death(self) -> None:
         self.alive = False
@@ -752,7 +760,7 @@ class LineRaiderEnemy(Enemy):
 class ShieldCasterEnemy(Enemy):
     _BASE = dict(max_hp=58, speed=68, damage=0, radius=16, color=(110, 205, 255), xp_drop=7, gold_drop=2, knockback_resist=0.08)
     _IDEAL_DIST = 250.0
-    _AURA_RADIUS = 170.0
+    _AURA_RADIUS = 260.0
 
     def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
         d = DIFFICULTY_SETTINGS[difficulty]
@@ -789,7 +797,8 @@ class ShieldCasterEnemy(Enemy):
             ox = sx + math.cos(angle) * r * 1.25
             oy = sy + math.sin(angle) * r * 1.25
             shapes.diamond(surface, glow, ox, oy, 4.5, 7.0)
-        shapes.ring(surface, glow, sx, sy, self.shield_aura_radius * 0.35, 2)
+        pulse = 0.55 + math.sin(self._anim_t * 1.2) * 0.04
+        shapes.ring(surface, glow, sx, sy, self.shield_aura_radius * pulse, 2)
 
 
 class EliteMissileSniper(Enemy):
@@ -1122,7 +1131,7 @@ class ArtilleryEnemy(Enemy):
 
 
 class GeometricDevourerBoss(Enemy):
-    _BASE = dict(max_hp=2450, speed=132, damage=26, radius=32, color=(255, 125, 85), xp_drop=135, gold_drop=40, knockback_resist=0.94)
+    _BASE = dict(max_hp=7350, speed=132, damage=26, radius=32, color=(255, 125, 85), xp_drop=135, gold_drop=40, knockback_resist=0.94)
     _CRUISE_DURATION = 5.4
     _ASSAULT_DURATION = 2.7
     _PORTAL_HIDE_TIME = 0.55
@@ -1130,8 +1139,8 @@ class GeometricDevourerBoss(Enemy):
     _PORTAL_COOLDOWN = 8.5
     _CRUISE_TURN = 2.0
     _ASSAULT_TURN = 3.25
-    _SEGMENT_SPACING = 28.0
-    _SEGMENT_COUNT = 8
+    _SEGMENT_SPACING = 24.0
+    _SEGMENT_COUNT = 24
     _SEGMENT_FIRE_CD = 1.05
     _GODFIRE_CD = 4.1
 
@@ -1348,6 +1357,12 @@ class GeometricDevourerBoss(Enemy):
             prev_x, prev_y = sx, sy
         self._segments = updated
 
+    def _segment_radius(self, idx: int) -> float:
+        if self._SEGMENT_COUNT <= 1:
+            return self.radius * 0.8
+        t = idx / (self._SEGMENT_COUNT - 1)
+        return self.radius * max(0.24, 0.88 - 0.56 * t)
+
     def _collapse_segments(self, dt: float) -> None:
         updated: list[tuple[float, float]] = []
         anchor_x, anchor_y = self.x, self.y
@@ -1440,7 +1455,7 @@ class GeometricDevourerBoss(Enemy):
         shadow_color = (0, 0, 0, 80)
         for idx in range(len(self._segments) - 1, -1, -1):
             sx, sy = self._segments[idx]
-            seg_r = self.radius * (0.84 - idx * 0.045)
+            seg_r = self._segment_radius(idx)
             self._segment_cache.append((sx, sy, seg_r))
             dsx, dsy = cam.world_to_screen(sx, sy)
             shadow = pygame.Surface((int(seg_r * 4), int(seg_r * 2.2)), pygame.SRCALPHA)
@@ -1488,6 +1503,20 @@ class GeometricDevourerBoss(Enemy):
             aura_r = head_r + 10 + math.sin(self._anim_t * 2.2) * 3
             shapes.ring(surface, (255, 170, 110), head_sx, head_sy, aura_r, 2)
 
+    def collision_nodes(self) -> list[tuple[float, float, float, float]]:
+        if not self.alive or self._state == "portal":
+            return []
+        nodes: list[tuple[float, float, float, float]] = []
+        if self.contact_damage:
+            nodes.append((self.x, self.y, self.radius * 0.95, self.damage))
+        body_damage = self.damage * (0.6 if self._state == "cruise" else 0.9)
+        for idx, (sx, sy) in enumerate(self._segments):
+            seg_r = self._segment_radius(idx) * 0.78
+            if seg_r <= 3:
+                continue
+            nodes.append((sx, sy, seg_r, body_damage))
+        return nodes
+
     def _draw_portal(self, surface: pygame.Surface, cam, x: float, y: float, color, alpha_scale: float) -> None:
         if not cam.is_visible(x, y, self.radius + 40):
             return
@@ -1508,7 +1537,7 @@ class GeometricDevourerBoss(Enemy):
 
 
 class StormTyrantBoss(Enemy):
-    _BASE = dict(max_hp=1600, speed=78, damage=20, radius=38, color=(255, 95, 165), xp_drop=90, gold_drop=28, knockback_resist=0.9)
+    _BASE = dict(max_hp=4800, speed=78, damage=20, radius=38, color=(255, 95, 165), xp_drop=90, gold_drop=28, knockback_resist=0.9)
     _STATE_ORDER = ("散射压制", "环阵轰击", "冲锋追猎")
     _STATE_DURATIONS = {"散射压制": 4.2, "环阵轰击": 4.0, "冲锋追猎": 3.6}
 
@@ -1629,7 +1658,7 @@ class StormTyrantBoss(Enemy):
 
 
 class VoidColossusBoss(Enemy):
-    _BASE = dict(max_hp=1850, speed=62, damage=24, radius=44, color=(90, 120, 255), xp_drop=110, gold_drop=34, knockback_resist=0.92)
+    _BASE = dict(max_hp=5550, speed=62, damage=24, radius=44, color=(90, 120, 255), xp_drop=110, gold_drop=34, knockback_resist=0.92)
     _STATE_ORDER = ("重压震荡", "虚空喷射", "引力坍塌")
     _STATE_DURATIONS = {"重压震荡": 4.5, "虚空喷射": 4.2, "引力坍塌": 4.8}
 

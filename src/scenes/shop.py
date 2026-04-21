@@ -1,4 +1,4 @@
-"""波间商店场景。"""
+"""Wave-break shop scene."""
 
 from __future__ import annotations
 
@@ -66,10 +66,7 @@ class ShopScene(Scene):
 
         for idx, (offer, rect) in enumerate(zip(self._offers, self._card_rects())):
             border = offer.color
-            if offer.sold:
-                fill = (48, 36, 36)
-            else:
-                fill = (30, 30, 44) if idx != self._selected else (44, 44, 66)
+            fill = (48, 36, 36) if offer.sold else ((44, 44, 66) if idx == self._selected else (30, 30, 44))
             pygame.draw.rect(surface, fill, rect, border_radius=14)
             pygame.draw.rect(surface, border, rect, 3, border_radius=14)
 
@@ -91,7 +88,7 @@ class ShopScene(Scene):
             hint = self._small_font.render(f"按 {idx + 1} 购买", True, (170, 170, 195))
             surface.blit(hint, (rect.x + 18, rect.bottom - 30))
 
-        footer = self._small_font.render("回车 / 空格继续战斗", True, (165, 165, 185))
+        footer = self._small_font.render("回车 / 空格 / Esc 继续战斗", True, (165, 165, 185))
         surface.blit(footer, footer.get_rect(centerx=SCREEN_WIDTH // 2, y=SCREEN_HEIGHT - 60))
 
         if self._message:
@@ -106,7 +103,7 @@ class ShopScene(Scene):
             self._message = "这件商品已经买过了"
             return
         self._message = self._on_buy(offer)
-        if "已购买" in self._message:
+        if self._message.endswith("已购买"):
             offer.sold = True
 
     def _refresh(self) -> None:

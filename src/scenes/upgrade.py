@@ -1,4 +1,4 @@
-"""升级选择场景。"""
+"""Level-up choice scene."""
 
 from __future__ import annotations
 
@@ -55,7 +55,7 @@ class UpgradeScene(Scene):
 
         for idx, (option, rect) in enumerate(zip(self._options, self._card_rects())):
             border = option.color
-            fill = (28, 28, 40) if idx != self._selected else (42, 42, 60)
+            fill = (42, 42, 60) if idx == self._selected else (28, 28, 40)
             pygame.draw.rect(surface, fill, rect, border_radius=14)
             pygame.draw.rect(surface, border, rect, 3, border_radius=14)
 
@@ -86,7 +86,4 @@ class UpgradeScene(Scene):
         gap = 24
         total_w = card_w * len(self._options) + gap * (len(self._options) - 1)
         start_x = SCREEN_WIDTH // 2 - total_w // 2
-        rects = []
-        for idx in range(len(self._options)):
-            rects.append(pygame.Rect(start_x + idx * (card_w + gap), 230, card_w, card_h))
-        return rects
+        return [pygame.Rect(start_x + idx * (card_w + gap), 230, card_w, card_h) for idx in range(len(self._options))]

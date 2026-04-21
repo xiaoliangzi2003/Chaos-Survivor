@@ -51,8 +51,10 @@ def apply_weapon_damage(
 
     angle = math.atan2(enemy.y - source_y, enemy.x - source_x)
     killed = enemy.take_damage(actual, angle, kb_force)
-    damage_numbers.add(enemy.x, enemy.y - enemy.radius - 6, actual, is_crit=is_crit)
-    player.total_damage_dealt += actual
+    actual_dealt = getattr(enemy, "last_damage_taken", actual)
+    if actual_dealt > 0:
+        damage_numbers.add(enemy.x, enemy.y - enemy.radius - 6, actual_dealt, is_crit=is_crit)
+        player.total_damage_dealt += actual_dealt
 
     feedback = getattr(player, "combat_feedback", None)
     if feedback:
@@ -60,12 +62,12 @@ def apply_weapon_damage(
             "enemy_hit",
             x=enemy.x,
             y=enemy.y,
-            amount=actual,
+            amount=actual_dealt,
             is_crit=is_crit,
             killed=killed,
             color=getattr(enemy, "color", (255, 255, 255)),
         )
-    return killed, actual, is_crit
+    return killed, actual_dealt, is_crit
 
 
 class Weapon:

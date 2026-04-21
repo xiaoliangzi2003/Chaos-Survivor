@@ -96,6 +96,7 @@ class BattleScene(Scene):
         self._shop_message = ""
         self._boss_intro_timer = 0.0
         self._low_detail = False
+        self._pending_shop_open = False
 
         self._red_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
         camera.update(0, 0, 0, bounds=self._bounds)
@@ -135,7 +136,9 @@ class BattleScene(Scene):
         self._check_player_enemy_collision()
         self._collect_dead()
         self._pickups.update(dt, self._player)
-        self._handle_pending_level_up()
+        opened_overlay = self._handle_pending_level_up()
+        if not opened_overlay:
+            self._handle_overlay_queue()
         self._check_victory(dt)
 
     def draw(self, surface: pygame.Surface) -> None:
@@ -165,7 +168,7 @@ class BattleScene(Scene):
         step = self._wave_system.update(dt, len(self._enemies), boss_alive=self._active_boss() is not None)
         if step.entered_break:
             self._clear_wave_with_drops()
-            self._open_shop()
+            self._pending_shop_open = True
         for spec in step.spawns:
             if len(self._enemies) >= MAX_ENEMIES:
                 break
@@ -285,13 +288,21 @@ class BattleScene(Scene):
             weapon.update(dt, self._player, self._enemies, self._grid, self._projectiles)
 
     def _check_player_enemy_collision(self) -> None:
-        nearby = self._grid.query_radius(self._player.x, self._player.y, self._player.radius + 80)
-        for enemy in nearby:
-            if not enemy.alive or not getattr(enemy, "contact_damage", True) or not self._player.collides_with(enemy):
+        px = self._player.x
+        py = self._player.y
+        for enemy in self._enemies:
+            if not enemy.alive:
                 continue
-            actual = self._player.take_damage(enemy.damage, enemy.x, enemy.y)
-            if actual > 0:
-                damage_numbers.add(self._player.x, self._player.y - 28, actual, custom_color=(255, 80, 80))
+            for ex, ey, radius, damage in enemy.collision_nodes():
+                hit_r = self._player.radius + radius
+                dx = px - ex
+                dy = py - ey
+                if dx * dx + dy * dy > hit_r * hit_r:
+                    continue
+                actual = self._player.take_damage(damage, ex, ey)
+                if actual > 0:
+                    damage_numbers.add(self._player.x, self._player.y - 28, actual, custom_color=(255, 80, 80))
+                    return
 
     def _collect_dead(self) -> None:
         keep = []
@@ -316,13 +327,21 @@ class BattleScene(Scene):
         self._hazards.clear()
         particles.burst(self._player.x, self._player.y, (255, 220, 120), count=20, speed=80, life=0.45, size=5)
 
-    def _handle_pending_level_up(self) -> None:
+    def _handle_pending_level_up(self) -> bool:
         if self._player.pending_level_ups <= 0:
-            return
+            return False
         self._player.pending_level_ups -= 1
         self._player.just_leveled = False
         options = build_upgrade_options(self._player, count=3)
         self.game.push_scene("upgrade", options=options, on_select=self._apply_upgrade)
+        return True
+
+    def _handle_overlay_queue(self) -> bool:
+        if not self._pending_shop_open or self._player.pending_level_ups > 0:
+            return False
+        self._pending_shop_open = False
+        self._open_shop()
+        return True
 
     def _apply_upgrade(self, option) -> None:
         self._last_upgrade_text = apply_upgrade(self._player, option)
@@ -340,6 +359,28 @@ class BattleScene(Scene):
             on_refresh=self._refresh_shop,
             wave=self._wave_system.current_wave,
             message=self._shop_message,
+        )
+
+    def _buy_shop_offer(self, offer) -> str:
+        if self._player.gold < offer.cost:
+            return "金币不足"
+        self._player.gold -= offer.cost
+        self._shop_message = apply_shop_offer(self._player, offer)
+        particles.sparkle(self._player.x, self._player.y, offer.color, count=9, radius=24)
+        return self._shop_message
+
+    def _refresh_shop(self):
+        cost = refresh_cost(self._shop_refresh_count)
+        if self._player.gold < cost:
+            self._shop_message = "金币不足，无法刷新"
+            return build_shop_offers(self._player, self._wave_system.current_wave, count=4), cost, self._shop_message
+        self._player.gold -= cost
+        self._shop_refresh_count += 1
+        self._shop_message = "商店已刷新"
+        return (
+            build_shop_offers(self._player, self._wave_system.current_wave, count=4),
+            refresh_cost(self._shop_refresh_count),
+            self._shop_message,
         )
 
     def _buy_shop_offer(self, offer) -> str:
