@@ -1,75 +1,94 @@
-"""主菜单场景（阶段 1 骨架，阶段 10 完整实现）。"""
+"""主菜单场景。"""
+
+from __future__ import annotations
 
 import pygame
-from src.core.scene  import Scene
-from src.core.config import SCREEN_WIDTH, SCREEN_HEIGHT, BLACK, WHITE, GOLD, GRAY
-from src.ui.fonts    import get_font
+
+from src.core.config import DIFFICULTY_NAMES, GOLD, GRAY, SCREEN_HEIGHT, SCREEN_WIDTH, WHITE
+from src.core.scene import Scene
+from src.ui.fonts import get_font
 
 
 class MenuScene(Scene):
-
     def on_enter(self, **kwargs) -> None:
-        self._font_title  = get_font(80, bold=True)
-        self._font_item   = get_font(46)
-        self._font_small  = get_font(28)
-
-        self._menu_items  = ["开始游戏", "选择难度", "设置", "退出"]
-        self._selected    = 0
-        self._difficulty  = kwargs.get("difficulty", 1)
+        self._font_title = get_font(80, bold=True)
+        self._font_item = get_font(42)
+        self._font_small = get_font(28)
+        self._items = ["开始游戏", "难度", "显示模式", "退出游戏"]
+        self._selected = 0
+        self._difficulty = kwargs.get("difficulty", getattr(self, "_difficulty", 1))
 
     def handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN:
             if event.key in (pygame.K_UP, pygame.K_w):
-                self._selected = (self._selected - 1) % len(self._menu_items)
+                self._selected = (self._selected - 1) % len(self._items)
             elif event.key in (pygame.K_DOWN, pygame.K_s):
-                self._selected = (self._selected + 1) % len(self._menu_items)
+                self._selected = (self._selected + 1) % len(self._items)
+            elif event.key in (pygame.K_LEFT, pygame.K_a):
+                self._adjust_selected(-1)
+            elif event.key in (pygame.K_RIGHT, pygame.K_d):
+                self._adjust_selected(1)
             elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
                 self._activate()
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             self._activate()
 
+    def _adjust_selected(self, delta: int) -> None:
+        item = self._items[self._selected]
+        if item == "难度":
+            self._difficulty = (self._difficulty + delta) % len(DIFFICULTY_NAMES)
+        elif item == "显示模式":
+            self.game.toggle_fullscreen(delta > 0 if delta != 0 else None)
+
     def _activate(self) -> None:
-        choice = self._menu_items[self._selected]
+        choice = self._items[self._selected]
         if choice == "开始游戏":
             self.game.set_scene("battle", difficulty=self._difficulty)
-        elif choice == "退出":
+        elif choice == "难度":
+            self._difficulty = (self._difficulty + 1) % len(DIFFICULTY_NAMES)
+        elif choice == "显示模式":
+            self.game.toggle_fullscreen()
+        else:
             self.game.running = False
 
     def update(self, dt: float) -> None:
-        # 鼠标悬停高亮
-        mx, my = pygame.mouse.get_pos()
-        cx = SCREEN_WIDTH // 2
-        for i, item in enumerate(self._menu_items):
-            y = 320 + i * 60
-            rect = pygame.Rect(cx - 150, y - 22, 300, 44)
+        mx, my = self.game.get_mouse_pos()
+        center_x = SCREEN_WIDTH // 2
+        for idx, _ in enumerate(self._items):
+            y = 320 + idx * 68
+            rect = pygame.Rect(center_x - 220, y - 24, 440, 48)
             if rect.collidepoint(mx, my):
-                self._selected = i
+                self._selected = idx
 
     def draw(self, surface: pygame.Surface) -> None:
         surface.fill((10, 10, 20))
 
-        # 标题
-        title = self._font_title.render("SURVIVOR 3.0", True, GOLD)
-        surface.blit(title, title.get_rect(centerx=SCREEN_WIDTH//2, y=140))
+        title = self._font_title.render("幸存者 3.0", True, GOLD)
+        surface.blit(title, title.get_rect(centerx=SCREEN_WIDTH // 2, y=130))
 
-        subtitle = self._font_small.render("几何幸存者 — Roguelike Bullet Heaven", True, GRAY)
-        surface.blit(subtitle, subtitle.get_rect(centerx=SCREEN_WIDTH//2, y=230))
+        subtitle = self._font_small.render("单局闭环试玩版", True, GRAY)
+        surface.blit(subtitle, subtitle.get_rect(centerx=SCREEN_WIDTH // 2, y=220))
 
-        # 菜单项
-        cx = SCREEN_WIDTH // 2
-        for i, item in enumerate(self._menu_items):
-            y = 320 + i * 60
-            color = GOLD if i == self._selected else WHITE
-            text  = self._font_item.render(item, True, color)
-            surface.blit(text, text.get_rect(centerx=cx, y=y))
-            if i == self._selected:
-                # 选中指示符
-                pygame.draw.polygon(surface, GOLD, [
-                    (cx - 160, y + 14),
-                    (cx - 148, y + 8),
-                    (cx - 148, y + 20),
-                ])
+        for idx, item in enumerate(self._items):
+            y = 320 + idx * 68
+            color = GOLD if idx == self._selected else WHITE
+            label = item
+            if item == "难度":
+                label = f"难度：{DIFFICULTY_NAMES[self._difficulty]}"
+            elif item == "显示模式":
+                label = f"显示模式：{self.game.display_mode_label()}"
+            text = self._font_item.render(label, True, color)
+            surface.blit(text, text.get_rect(centerx=SCREEN_WIDTH // 2, y=y))
+            if idx == self._selected:
+                pygame.draw.polygon(
+                    surface,
+                    GOLD,
+                    [
+                        (SCREEN_WIDTH // 2 - 250, y + 14),
+                        (SCREEN_WIDTH // 2 - 235, y + 7),
+                        (SCREEN_WIDTH // 2 - 235, y + 21),
+                    ],
+                )
 
-        # 版本号
-        ver = self._font_small.render("v0.1 — 阶段 1", True, (60, 60, 80))
-        surface.blit(ver, (10, SCREEN_HEIGHT - 26))
+        hint = self._font_small.render("方向键或 WASD 选择，回车确认，F11 也可切换全屏", True, (110, 110, 140))
+        surface.blit(hint, hint.get_rect(centerx=SCREEN_WIDTH // 2, y=SCREEN_HEIGHT - 56))

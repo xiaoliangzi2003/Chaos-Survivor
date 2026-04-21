@@ -1,86 +1,71 @@
-"""
-敌人实体：5 种普通 + 3 种精英，含 AI、受击反馈、击退、死亡粒子。
+"""全部由几何图形绘制的敌人实体。"""
 
-普通敌人
-  ZombieEnemy   — 绿色圆形，直线追击
-  SpeederEnemy  — 黄色三角，高速冲刺
-  TankEnemy     — 钢蓝方块，缓慢高 HP
-  WizardEnemy   — 紫色菱形，保持距离 / 占位射击
-  ExploderEnemy — 红色圆，靠近引爆
-
-精英敌人（4× HP / 2× 伤害 / 3× 奖励）
-  EliteSummoner  — 超级僵尸，每 5s 召唤 3 只小僵尸
-  EliteBerserker — 超级重甲，HP<50% 进入暴怒
-  EliteAssassin  — 超级速行者，每 4s 瞬移至玩家身后
-"""
+from __future__ import annotations
 
 import math
+
 import pygame
 
-from src.core.config      import DIFFICULTY_SETTINGS
-from src.core.rng         import rng
-from src.entities.entity  import Entity
-from src.render           import shapes
+from src.core.config import DIFFICULTY_SETTINGS
+from src.core.rng import rng
+from src.entities.entity import Entity
+from src.render import shapes
 from src.render.particles import particles
 
-# ── 精英倍率 ──────────────────────────────────────────
-_E_HP   = 4.0
-_E_DMG  = 2.0
-_E_RWD  = 3.0    # 经验 / 金币倍率
-_E_RAD  = 1.35   # 半径倍率
+_ELITE_HP = 4.0
+_ELITE_DMG = 2.0
+_ELITE_RWD = 3.0
+_ELITE_RAD = 1.35
+_KB_DECAY = 9.0
 
-# ── 击退衰减 ──────────────────────────────────────────
-_KB_DECAY = 9.0  # 每秒衰减系数（越大越快停下）
-
-
-# ═════════════════════════════════════════════════════
-#  基类
-# ═════════════════════════════════════════════════════
 
 class Enemy(Entity):
-    """所有敌人共用逻辑：移动、受伤、白闪、击退、死亡。"""
+    HIT_FLASH = 0.08
 
-    COLOR     = (180, 180, 180)
-    HIT_FLASH = 0.08    # 受击白闪时长（秒）
-
-    def __init__(self, x: float, y: float,
-                 max_hp: float, speed: float, damage: float,
-                 radius: float, color: tuple,
-                 xp_drop: int, gold_drop: int,
-                 knockback_resist: float = 0.0) -> None:
+    def __init__(
+        self,
+        x: float,
+        y: float,
+        max_hp: float,
+        speed: float,
+        damage: float,
+        radius: float,
+        color: tuple[int, int, int],
+        xp_drop: int,
+        gold_drop: int,
+        knockback_resist: float = 0.0,
+    ) -> None:
         super().__init__(x, y, radius)
-        self.max_hp           = max_hp
-        self.hp               = max_hp
-        self.speed            = speed
-        self.damage           = damage
-        self.color            = color
-        self.xp_drop          = xp_drop
-        self.gold_drop        = gold_drop
+        self.max_hp = max_hp
+        self.hp = max_hp
+        self.speed = speed
+        self.damage = damage
+        self.color = color
+        self.xp_drop = xp_drop
+        self.gold_drop = gold_drop
         self.knockback_resist = knockback_resist
+        self.is_boss = False
+        self.boss_name = ""
+        self.attack_label = ""
 
-        self.vx: float = 0.0
-        self.vy: float = 0.0
-        self.kb_vx: float = 0.0
-        self.kb_vy: float = 0.0
+        self.vx = 0.0
+        self.vy = 0.0
+        self.kb_vx = 0.0
+        self.kb_vy = 0.0
+        self._flash_timer = 0.0
+        self._slow_timer = 0.0
+        self._slow_mul = 1.0
+        self._anim_t = rng.uniform(0, math.pi * 2)
+        self._hit_burst = 0.0
 
-        self._flash_timer: float = 0.0
         self.pending_spawns: list[tuple[str, float, float]] = []
-        # 状态效果
-        self._slow_timer: float = 0.0
-        self._slow_mul:   float = 1.0
+        self.pending_projectiles: list[dict] = []
 
-    # ── 受伤 ──────────────────────────────────────────
-    def take_damage(self, amount: float,
-                    angle: float = 0.0,
-                    kb_force: float = 150.0) -> bool:
-        """
-        返回 True = 本次击杀。
-        angle: 击退方向（弧度，从伤害来源指向敌人）。
-        """
+    def take_damage(self, amount: float, angle: float = 0.0, kb_force: float = 150.0) -> bool:
         self.hp -= amount
         self._flash_timer = self.HIT_FLASH
+        self._hit_burst = 1.0
 
-        # 击退
         actual_kb = kb_force * (1.0 - self.knockback_resist)
         self.kb_vx += math.cos(angle) * actual_kb
         self.kb_vy += math.sin(angle) * actual_kb
@@ -93,28 +78,29 @@ class Enemy(Entity):
 
     def _on_death(self) -> None:
         self.alive = False
-        particles.burst(self.x, self.y, self.color,
-                        count=14, speed=90, life=0.55, size=5, gravity=40)
+        burst = 34 if self.is_boss else 18
+        speed = 160 if self.is_boss else 110
+        size = 8 if self.is_boss else 5
+        particles.burst(self.x, self.y, self.color, count=burst, speed=speed, life=0.7, size=size, gravity=60)
 
-    # ── 每帧更新 ──────────────────────────────────────
     def update(self, dt: float, player) -> None:
         if not self.alive:
             return
-        self.pending_spawns.clear()
 
-        # 击退衰减
+        self.pending_spawns.clear()
+        self.pending_projectiles.clear()
+        self._anim_t = (self._anim_t + dt * (2.0 + self.speed / 140.0)) % (math.pi * 2)
+        self._hit_burst = max(0.0, self._hit_burst - dt * 6.0)
+
         decay = max(0.0, 1.0 - _KB_DECAY * dt)
         self.kb_vx *= decay
         self.kb_vy *= decay
 
-        # 白闪倒计时
         if self._flash_timer > 0:
             self._flash_timer = max(0.0, self._flash_timer - dt)
 
-        # AI（子类重写）
         self._ai(dt, player)
 
-        # 减速状态：ai 设置速度后乘以减速系数
         if self._slow_timer > 0:
             self._slow_timer -= dt
             if self._slow_timer <= 0:
@@ -123,12 +109,10 @@ class Enemy(Entity):
                 self.vx *= self._slow_mul
                 self.vy *= self._slow_mul
 
-        # 位移
         self.x += (self.vx + self.kb_vx) * dt
         self.y += (self.vy + self.kb_vy) * dt
 
     def _ai(self, dt: float, player) -> None:
-        """默认 AI：直线追玩家。"""
         dx = player.x - self.x
         dy = player.y - self.y
         dist = math.hypot(dx, dy)
@@ -136,122 +120,141 @@ class Enemy(Entity):
             self.vx = dx / dist * self.speed
             self.vy = dy / dist * self.speed
 
-    # ── 绘制 ──────────────────────────────────────────
     def draw(self, surface: pygame.Surface, cam) -> None:
-        if not cam.is_visible(self.x, self.y, self.radius + 4):
+        if not cam.is_visible(self.x, self.y, self.radius + 18):
             return
         sx, sy = cam.world_to_screen(self.x, self.y)
         flash = self._flash_timer > 0
+        self._draw_shadow(surface, sx, sy)
         self._draw_shape(surface, sx, sy, flash)
-        if self._slow_timer > 0:    # 减速蓝环
-            shapes.ring(surface, (100, 170, 255), sx, sy, self.radius + 2, 2)
+        if self._slow_timer > 0:
+            shapes.ring(surface, (100, 170, 255), sx, sy, self.radius + 4, 2)
         self._draw_hp_bar(surface, sx, sy)
 
-    def _draw_shape(self, surface: pygame.Surface,
-                    sx: float, sy: float, flash: bool) -> None:
-        col = (255, 255, 255) if flash else self.color
-        shapes.circle(surface, col, sx, sy, self.radius)
+    def _draw_shadow(self, surface: pygame.Surface, sx: float, sy: float) -> None:
+        shadow = pygame.Surface((int(self.radius * 4), int(self.radius * 2.2)), pygame.SRCALPHA)
+        pygame.draw.ellipse(shadow, (0, 0, 0, 65), shadow.get_rect())
+        surface.blit(shadow, (int(sx - shadow.get_width() / 2), int(sy + self.radius * 0.6)))
 
-    def _draw_hp_bar(self, surface: pygame.Surface,
-                     sx: float, sy: float) -> None:
-        if self.hp >= self.max_hp:
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        color = (255, 255, 255) if flash else self.color
+        shapes.circle(surface, color, sx, sy, self.radius)
+
+    def _draw_hp_bar(self, surface: pygame.Surface, sx: float, sy: float) -> None:
+        if self.hp >= self.max_hp or self.is_boss:
             return
-        bw = self.radius * 2
+        bw = self.radius * 2.2
         bh = 4
-        bx = sx - self.radius
-        by = sy - self.radius - 8
-        shapes.bar(surface, bx, by, bw, bh,
-                   self.hp, self.max_hp,
-                   (220, 60, 60), (60, 20, 20))
+        shapes.bar(surface, sx - bw / 2, sy - self.radius - 10, bw, bh, self.hp, self.max_hp, (230, 70, 80), (60, 20, 20))
 
-    # ── 工具 ──────────────────────────────────────────
     def apply_slow(self, mul: float, duration: float) -> None:
-        """施加减速（叠加取最慢，时长取最长）。"""
         if mul < self._slow_mul:
             self._slow_mul = mul
         self._slow_timer = max(self._slow_timer, duration)
 
-    def dir_to_player(self, player) -> tuple[float, float]:
-        dx = player.x - self.x
-        dy = player.y - self.y
-        dist = math.hypot(dx, dy)
-        return (dx / dist, dy / dist) if dist > 0 else (0.0, 0.0)
+    def _shoot_at_player(
+        self,
+        player,
+        speed: float,
+        damage: float,
+        color,
+        spread: float = 0.0,
+        count: int = 1,
+        shape: str = "orb",
+        radius: float = 7.0,
+        life: float = 4.0,
+    ) -> None:
+        base = math.atan2(player.y - self.y, player.x - self.x)
+        for idx in range(count):
+            offset = 0.0 if count == 1 else -spread / 2 + spread * idx / (count - 1)
+            angle = base + offset
+            self.pending_projectiles.append(
+                {
+                    "x": self.x,
+                    "y": self.y,
+                    "vx": math.cos(angle) * speed,
+                    "vy": math.sin(angle) * speed,
+                    "damage": damage,
+                    "life": life,
+                    "radius": radius,
+                    "color": color,
+                    "shape": shape,
+                }
+            )
 
+    def _shoot_ring(
+        self,
+        speed: float,
+        damage: float,
+        color,
+        count: int,
+        shape: str = "orb",
+        radius: float = 7.0,
+        life: float = 4.0,
+    ) -> None:
+        for idx in range(count):
+            angle = math.tau * idx / count
+            self.pending_projectiles.append(
+                {
+                    "x": self.x,
+                    "y": self.y,
+                    "vx": math.cos(angle) * speed,
+                    "vy": math.sin(angle) * speed,
+                    "damage": damage,
+                    "life": life,
+                    "radius": radius,
+                    "color": color,
+                    "shape": shape,
+                }
+            )
 
-# ═════════════════════════════════════════════════════
-#  普通敌人
-# ═════════════════════════════════════════════════════
 
 class ZombieEnemy(Enemy):
-    """绿色圆形僵尸：直线追击，基础单位。"""
-    _BASE = dict(max_hp=30,  speed=80,  damage=8,
-                 radius=14,  color=(55, 185, 55),
-                 xp_drop=2,  gold_drop=1,  knockback_resist=0.0)
-
-    def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
-        d  = DIFFICULTY_SETTINGS[difficulty]
-        b  = self._BASE
-        super().__init__(x, y,
-            max_hp=b["max_hp"] * d["hp_mul"],
-            speed=b["speed"],
-            damage=b["damage"] * d["dmg_mul"],
-            radius=b["radius"],
-            color=b["color"],
-            xp_drop=max(1, int(b["xp_drop"] * d["reward_mul"])),
-            gold_drop=b["gold_drop"],
-            knockback_resist=b["knockback_resist"])
-
-    def _draw_shape(self, surface: pygame.Surface,
-                    sx: float, sy: float, flash: bool) -> None:
-        col  = (255, 255, 255) if flash else self.color
-        dark = (20, 80, 20)   if not flash else (200, 200, 200)
-        shapes.circle(surface, col, sx, sy, self.radius)
-        shapes.circle(surface, col, sx, sy, self.radius, width=2)
-        # 眼睛
-        eo = self.radius * 0.35
-        er = max(2, int(self.radius * 0.18))
-        shapes.circle(surface, dark, sx - eo, sy - eo * 0.3, er)
-        shapes.circle(surface, dark, sx + eo, sy - eo * 0.3, er)
-        # 顶部锯齿（3 根刺）
-        for i in range(-1, 2):
-            bx = sx + i * self.radius * 0.35
-            shapes.line(surface, dark,
-                        bx, sy - self.radius,
-                        bx, sy - self.radius - 5, 2)
-
-
-class SpeederEnemy(Enemy):
-    """黄色三角速行者：平时慢走，每 3s 发动冲刺。"""
-    _BASE = dict(max_hp=18,  speed=85,  damage=6,
-                 radius=11,  color=(220, 210, 35),
-                 xp_drop=3,  gold_drop=1,  knockback_resist=0.0)
-
-    _CHARGE_SPEED    = 340.0
-    _CHARGE_INTERVAL = 3.0
-    _CHARGE_DUR      = 0.55
+    _BASE = dict(max_hp=34, speed=78, damage=8, radius=15, color=(55, 185, 90), xp_drop=2, gold_drop=1, knockback_resist=0.0)
 
     def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
         d = DIFFICULTY_SETTINGS[difficulty]
         b = self._BASE
-        super().__init__(x, y,
-            max_hp=b["max_hp"] * d["hp_mul"],
-            speed=b["speed"],
-            damage=b["damage"] * d["dmg_mul"],
-            radius=b["radius"], color=b["color"],
-            xp_drop=max(1, int(b["xp_drop"] * d["reward_mul"])),
-            gold_drop=b["gold_drop"],
-            knockback_resist=b["knockback_resist"])
-        self._charge_cd   = self._CHARGE_INTERVAL * 0.5
+        super().__init__(x, y, b["max_hp"] * d["hp_mul"], b["speed"], b["damage"] * d["dmg_mul"], b["radius"], b["color"], max(1, int(b["xp_drop"] * d["reward_mul"])), b["gold_drop"], b["knockback_resist"])
+
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        bob = math.sin(self._anim_t * 1.4) * 2
+        stretch = 1.0 + math.sin(self._anim_t) * 0.08 + self._hit_burst * 0.18
+        radius = self.radius * stretch
+        color = (255, 255, 255) if flash else self.color
+        dark = (25, 88, 45)
+        shapes.glow_circle(surface, color, sx, sy + bob, radius * 0.9, layers=2, alpha_start=45)
+        shapes.circle(surface, color, sx, sy + bob, radius)
+        shapes.circle(surface, dark, sx, sy + bob, radius, width=2)
+        eye_offset = radius * 0.35
+        shapes.circle(surface, dark, sx - eye_offset, sy - radius * 0.15 + bob, max(2, radius * 0.16))
+        shapes.circle(surface, dark, sx + eye_offset, sy - radius * 0.15 + bob, max(2, radius * 0.16))
+        for idx in (-1, 0, 1):
+            bx = sx + idx * radius * 0.42
+            shapes.line(surface, dark, bx, sy - radius + bob, bx, sy - radius - 6 + bob, 2)
+
+
+class SpeederEnemy(Enemy):
+    _BASE = dict(max_hp=20, speed=88, damage=7, radius=12, color=(235, 220, 70), xp_drop=3, gold_drop=1, knockback_resist=0.0)
+    _CHARGE_SPEED = 360.0
+    _CHARGE_INTERVAL = 3.0
+    _CHARGE_DUR = 0.55
+
+    def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
+        d = DIFFICULTY_SETTINGS[difficulty]
+        b = self._BASE
+        super().__init__(x, y, b["max_hp"] * d["hp_mul"], b["speed"], b["damage"] * d["dmg_mul"], b["radius"], b["color"], max(1, int(b["xp_drop"] * d["reward_mul"])), b["gold_drop"], b["knockback_resist"])
+        self._charge_cd = self._CHARGE_INTERVAL * 0.5
         self._charge_timer = 0.0
-        self._charging     = False
-        self._cdx = self._cdy = 0.0
+        self._charging = False
+        self._cdx = 0.0
+        self._cdy = 0.0
 
     def _ai(self, dt: float, player) -> None:
         self._charge_cd -= dt
-        px, py = player.x, player.y
-        dx = px - self.x;  dy = py - self.y
+        dx = player.x - self.x
+        dy = player.y - self.y
         dist = math.hypot(dx, dy)
-
         if self._charging:
             self._charge_timer += dt
             if self._charge_timer >= self._CHARGE_DUR:
@@ -260,7 +263,7 @@ class SpeederEnemy(Enemy):
             self.vx = self._cdx * self._CHARGE_SPEED
             self.vy = self._cdy * self._CHARGE_SPEED
         else:
-            if self._charge_cd <= 0 and dist < 350 and dist > 0:
+            if self._charge_cd <= 0 and 0 < dist < 350:
                 self._charging = True
                 self._charge_timer = 0.0
                 self._cdx = dx / dist
@@ -269,292 +272,487 @@ class SpeederEnemy(Enemy):
                 self.vx = dx / dist * self.speed
                 self.vy = dy / dist * self.speed
 
-    def _draw_shape(self, surface: pygame.Surface,
-                    sx: float, sy: float, flash: bool) -> None:
-        angle = math.atan2(self.vy or self.kb_vy, self.vx or self.kb_vx)
-        r = self.radius
-        col = (255, 255, 255) if flash else self.color
-        # 朝运动方向的三角形
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        angle = math.atan2(self.vy or self.kb_vy or 0.01, self.vx or self.kb_vx or 0.01)
+        r = self.radius * (1.0 + self._hit_burst * 0.16)
+        color = (255, 255, 255) if flash else self.color
+        tip = (sx + math.cos(angle) * r * 1.35, sy + math.sin(angle) * r * 1.35)
         pts = [
-            (sx + math.cos(angle) * r * 1.2,
-             sy + math.sin(angle) * r * 1.2),
-            (sx + math.cos(angle + 2.4) * r,
-             sy + math.sin(angle + 2.4) * r),
-            (sx + math.cos(angle - 2.4) * r,
-             sy + math.sin(angle - 2.4) * r),
+            tip,
+            (sx + math.cos(angle + 2.5) * r, sy + math.sin(angle + 2.5) * r),
+            (sx + math.cos(angle + math.pi) * r * 0.35, sy + math.sin(angle + math.pi) * r * 0.35),
+            (sx + math.cos(angle - 2.5) * r, sy + math.sin(angle - 2.5) * r),
         ]
-        shapes.polygon(surface, col, pts)
-        # 冲刺时画速度线
         if self._charging and not flash:
-            for i in range(1, 4):
-                tx = sx - math.cos(angle) * r * i * 0.55
-                ty = sy - math.sin(angle) * r * i * 0.55
-                a  = max(30, 100 - i * 30)
-                pygame.draw.circle(surface, (*self.color, a),
-                                   (int(tx), int(ty)), max(1, r - i * 2))
+            for idx in range(1, 4):
+                tx = sx - math.cos(angle) * r * idx * 0.8
+                ty = sy - math.sin(angle) * r * idx * 0.8
+                shapes.circle(surface, color, tx, ty, max(1, r - idx * 2))
+        shapes.glow_circle(surface, color, sx, sy, r * 0.9, layers=2, alpha_start=40)
+        shapes.polygon(surface, color, pts)
+        shapes.polygon(surface, (255, 255, 255), pts, width=1)
 
 
-class TankEnemy(Enemy):
-    """钢蓝方块：缓慢但高 HP 高伤害，强力击退抗性。"""
-    _BASE = dict(max_hp=120, speed=45, damage=22,
-                 radius=20,  color=(90, 115, 155),
-                 xp_drop=8,  gold_drop=3,  knockback_resist=0.6)
-
-    def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
-        d = DIFFICULTY_SETTINGS[difficulty]
-        b = self._BASE
-        super().__init__(x, y,
-            max_hp=b["max_hp"] * d["hp_mul"],
-            speed=b["speed"],
-            damage=b["damage"] * d["dmg_mul"],
-            radius=b["radius"], color=b["color"],
-            xp_drop=max(1, int(b["xp_drop"] * d["reward_mul"])),
-            gold_drop=b["gold_drop"],
-            knockback_resist=b["knockback_resist"])
-        self._angle = 0.0
-
-    def update(self, dt: float, player) -> None:
-        self._angle += dt * 0.8
-        super().update(dt, player)
-
-    def _draw_shape(self, surface: pygame.Surface,
-                    sx: float, sy: float, flash: bool) -> None:
-        col  = (255, 255, 255) if flash else self.color
-        dark = (50, 65, 90)   if not flash else (200, 200, 200)
-        r = self.radius
-        a = self._angle
-        # 外方块（旋转）
-        shapes.regular_polygon(surface, col,  sx, sy, r,     4, a)
-        shapes.regular_polygon(surface, dark, sx, sy, r,     4, a,    width=2)
-        shapes.regular_polygon(surface, dark, sx, sy, r*0.5, 4, a + math.pi/4)
-
-
-class WizardEnemy(Enemy):
-    """紫色菱形巫师：保持距离绕行，预留远程射击接口。"""
-    _BASE = dict(max_hp=40,  speed=60,  damage=12,
-                 radius=13,  color=(165, 55, 225),
-                 xp_drop=5,  gold_drop=2,  knockback_resist=0.0)
-
-    _IDEAL_DIST  = 210.0
-    _SHOOT_CD    = 2.5
+class LancerEnemy(Enemy):
+    _BASE = dict(max_hp=28, speed=76, damage=10, radius=11, color=(255, 160, 80), xp_drop=3, gold_drop=1, knockback_resist=0.05)
+    _LUNGE_CD = 2.2
+    _LUNGE_DUR = 0.38
+    _LUNGE_SPEED = 420
 
     def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
         d = DIFFICULTY_SETTINGS[difficulty]
         b = self._BASE
-        super().__init__(x, y,
-            max_hp=b["max_hp"] * d["hp_mul"],
-            speed=b["speed"],
-            damage=b["damage"] * d["dmg_mul"],
-            radius=b["radius"], color=b["color"],
-            xp_drop=max(1, int(b["xp_drop"] * d["reward_mul"])),
-            gold_drop=b["gold_drop"],
-            knockback_resist=b["knockback_resist"])
-        self._shoot_timer = self._SHOOT_CD * 0.4
-        self._orb_angle   = 0.0
-        # 阶段 5 填充：射击回调 / 返回投射物请求
-
-    def update(self, dt: float, player) -> None:
-        self._orb_angle = (self._orb_angle + dt * 2.5) % (math.pi * 2)
-        super().update(dt, player)
+        super().__init__(x, y, b["max_hp"] * d["hp_mul"], b["speed"], b["damage"] * d["dmg_mul"], b["radius"], b["color"], max(1, int(b["xp_drop"] * d["reward_mul"])), b["gold_drop"], b["knockback_resist"])
+        self._lunge_cd = self._LUNGE_CD * 0.6
+        self._lunge_timer = 0.0
+        self._lunging = False
+        self._dir = 0.0
 
     def _ai(self, dt: float, player) -> None:
         dx = player.x - self.x
         dy = player.y - self.y
-        dist = math.hypot(dx, dy)
+        dist = math.hypot(dx, dy) or 0.001
+        self._lunge_cd -= dt
+
+        if self._lunging:
+            self._lunge_timer += dt
+            if self._lunge_timer >= self._LUNGE_DUR:
+                self._lunging = False
+                self._lunge_cd = self._LUNGE_CD
+            self.vx = math.cos(self._dir) * self._LUNGE_SPEED
+            self.vy = math.sin(self._dir) * self._LUNGE_SPEED
+            return
+
+        if self._lunge_cd <= 0 and dist < 260:
+            self._lunging = True
+            self._lunge_timer = 0.0
+            self._dir = math.atan2(dy, dx)
+            return
+
+        strafe = math.atan2(dy, dx) + math.pi / 2
+        self.vx = math.cos(strafe) * self.speed * 0.55 + dx / dist * self.speed * 0.45
+        self.vy = math.sin(strafe) * self.speed * 0.55 + dy / dist * self.speed * 0.45
+
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        angle = self._dir if self._lunging else math.atan2(self.vy or 0.01, self.vx or 0.01)
+        r = self.radius * (1.0 + self._hit_burst * 0.18)
+        color = (255, 255, 255) if flash else self.color
+        tail = (sx - math.cos(angle) * r * 1.4, sy - math.sin(angle) * r * 1.4)
+        left = (sx + math.cos(angle + 2.65) * r, sy + math.sin(angle + 2.65) * r)
+        right = (sx + math.cos(angle - 2.65) * r, sy + math.sin(angle - 2.65) * r)
+        shapes.glow_circle(surface, color, sx, sy, r * 0.9, layers=2, alpha_start=30)
+        shapes.polygon(surface, color, [(sx + math.cos(angle) * r * 1.65, sy + math.sin(angle) * r * 1.65), left, tail, right])
+        shapes.line(surface, (255, 250, 220), tail[0], tail[1], sx + math.cos(angle) * r * 1.9, sy + math.sin(angle) * r * 1.9, 2)
+
+
+class WispEnemy(Enemy):
+    _BASE = dict(max_hp=24, speed=74, damage=9, radius=10, color=(100, 240, 255), xp_drop=4, gold_drop=1, knockback_resist=0.0)
+    _IDEAL_DIST = 180.0
+    _SHOOT_CD = 1.8
+
+    def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
+        d = DIFFICULTY_SETTINGS[difficulty]
+        b = self._BASE
+        super().__init__(x, y, b["max_hp"] * d["hp_mul"], b["speed"], b["damage"] * d["dmg_mul"], b["radius"], b["color"], max(1, int(b["xp_drop"] * d["reward_mul"])), b["gold_drop"], b["knockback_resist"])
+        self._shoot_timer = self._SHOOT_CD * 0.5
+
+    def _ai(self, dt: float, player) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        orbit = math.atan2(dy, dx) + math.pi / 2
+
+        if dist > self._IDEAL_DIST * 1.2:
+            self.vx = dx / dist * self.speed * 0.8
+            self.vy = dy / dist * self.speed * 0.8
+        elif dist < self._IDEAL_DIST * 0.75:
+            self.vx = -dx / dist * self.speed * 0.7
+            self.vy = -dy / dist * self.speed * 0.7
+        else:
+            self.vx = math.cos(orbit) * self.speed
+            self.vy = math.sin(orbit) * self.speed
+
+        self._shoot_timer -= dt
+        if self._shoot_timer <= 0:
+            self._shoot_timer = self._SHOOT_CD
+            self._shoot_at_player(player, 260, self.damage, (145, 250, 255), spread=0.22, count=2, shape="orb", radius=5.5, life=3.8)
+            particles.sparkle(self.x, self.y, (145, 250, 255), count=5, radius=15)
+
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        r = self.radius * (1.0 + math.sin(self._anim_t * 1.6) * 0.08 + self._hit_burst * 0.18)
+        color = (255, 255, 255) if flash else self.color
+        shapes.glow_circle(surface, color, sx, sy, r * 1.15, layers=3, alpha_start=55)
+        shapes.diamond(surface, color, sx, sy, r * 0.75, r * 1.1)
+        shapes.circle(surface, (255, 255, 255), sx, sy, r * 0.3)
+        tail_y = sy + r * 1.3
+        shapes.line(surface, color, sx, sy + r * 0.55, sx, tail_y, 2)
+
+
+class TankEnemy(Enemy):
+    _BASE = dict(max_hp=130, speed=46, damage=22, radius=22, color=(95, 130, 175), xp_drop=8, gold_drop=3, knockback_resist=0.6)
+
+    def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
+        d = DIFFICULTY_SETTINGS[difficulty]
+        b = self._BASE
+        super().__init__(x, y, b["max_hp"] * d["hp_mul"], b["speed"], b["damage"] * d["dmg_mul"], b["radius"], b["color"], max(1, int(b["xp_drop"] * d["reward_mul"])), b["gold_drop"], b["knockback_resist"])
+
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        angle = self._anim_t * 0.3
+        r = self.radius * (1.0 + self._hit_burst * 0.12)
+        color = (255, 255, 255) if flash else self.color
+        dark = (45, 70, 105)
+        shapes.glow_circle(surface, color, sx, sy, r * 0.95, layers=2, alpha_start=30)
+        shapes.regular_polygon(surface, color, sx, sy, r, 6, angle)
+        shapes.regular_polygon(surface, dark, sx, sy, r, 6, angle, width=2)
+        shapes.regular_polygon(surface, dark, sx, sy, r * 0.52, 4, angle + math.pi / 4)
+        for idx in range(6):
+            a = angle + math.pi * 2 * idx / 6
+            bx = sx + math.cos(a) * r * 0.75
+            by = sy + math.sin(a) * r * 0.75
+            shapes.circle(surface, dark, bx, by, 2)
+
+
+class WizardEnemy(Enemy):
+    _BASE = dict(max_hp=44, speed=64, damage=12, radius=14, color=(165, 60, 230), xp_drop=5, gold_drop=2, knockback_resist=0.0)
+    _IDEAL_DIST = 210.0
+    _SHOOT_CD = 2.25
+
+    def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
+        d = DIFFICULTY_SETTINGS[difficulty]
+        b = self._BASE
+        super().__init__(x, y, b["max_hp"] * d["hp_mul"], b["speed"], b["damage"] * d["dmg_mul"], b["radius"], b["color"], max(1, int(b["xp_drop"] * d["reward_mul"])), b["gold_drop"], b["knockback_resist"])
+        self._shoot_timer = self._SHOOT_CD * 0.4
+
+    def _ai(self, dt: float, player) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
         ideal = self._IDEAL_DIST
 
-        if dist < ideal * 0.75 and dist > 0:          # 太近：后退
+        if dist < ideal * 0.75:
             self.vx = -dx / dist * self.speed
             self.vy = -dy / dist * self.speed
-        elif dist > ideal * 1.4 and dist > 0:          # 太远：靠近
-            self.vx =  dx / dist * self.speed * 0.6
-            self.vy =  dy / dist * self.speed * 0.6
-        elif dist > 0:                                  # 绕行
+        elif dist > ideal * 1.4:
+            self.vx = dx / dist * self.speed * 0.6
+            self.vy = dy / dist * self.speed * 0.6
+        else:
             perp = math.atan2(dy, dx) + math.pi / 2
             self.vx = math.cos(perp) * self.speed * 0.45
             self.vy = math.sin(perp) * self.speed * 0.45
 
-        # 射击计时（占位，阶段 5 补充实际投射物）
         self._shoot_timer -= dt
         if self._shoot_timer <= 0:
             self._shoot_timer = self._SHOOT_CD
-            # 视觉反馈
-            particles.directional(self.x, self.y,
-                math.atan2(player.y - self.y, player.x - self.x),
-                0.25, (200, 90, 255), count=4, speed=25, life=0.2, size=4)
+            self._shoot_at_player(player, 240, self.damage, (210, 120, 255), shape="orb", radius=7.5, life=4.5)
+            particles.sparkle(self.x, self.y, (220, 140, 255), count=6, radius=18)
 
-    def _draw_shape(self, surface: pygame.Surface,
-                    sx: float, sy: float, flash: bool) -> None:
-        r   = self.radius
-        col = (255, 255, 255) if flash else self.color
-        lit = (210, 130, 255) if not flash else (255, 255, 255)
-        # 菱形主体
-        shapes.diamond(surface, col, sx, sy, r, r * 1.25)
-        shapes.diamond(surface, lit, sx, sy, r, r * 1.25, width=2)
-        # 内圆
-        shapes.circle(surface, lit, sx, sy, r * 0.38)
-        # 环绕小球（阶段 5 将由武器系统接管）
-        if not flash:
-            for i in range(3):
-                a  = self._orb_angle + i * math.pi * 2 / 3
-                ox = sx + math.cos(a) * r * 1.45
-                oy = sy + math.sin(a) * r * 1.45
-                shapes.circle(surface, lit, ox, oy, 3)
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        r = self.radius * (1.0 + self._hit_burst * 0.14)
+        color = (255, 255, 255) if flash else self.color
+        glow = (215, 145, 255)
+        shapes.glow_circle(surface, color, sx, sy, r * 0.95, layers=2, alpha_start=50)
+        shapes.diamond(surface, color, sx, sy, r, r * 1.25)
+        shapes.diamond(surface, glow, sx, sy, r, r * 1.25, width=2)
+        shapes.circle(surface, glow, sx, sy, r * 0.38)
+        for idx in range(3):
+            angle = self._anim_t * 1.4 + idx * math.tau / 3
+            ox = sx + math.cos(angle) * r * 1.45
+            oy = sy + math.sin(angle) * r * 1.45
+            shapes.circle(surface, glow, ox, oy, 3)
 
 
 class ExploderEnemy(Enemy):
-    """红色自爆体：靠近玩家后引爆，范围伤害。"""
-    _BASE = dict(max_hp=25,  speed=95,  damage=45,
-                 radius=15,  color=(225, 55, 55),
-                 xp_drop=4,  gold_drop=2,  knockback_resist=0.0)
-
-    _ARM_DIST    = 85.0     # 开始倒计时的距离
-    _FUSE_TIME   = 1.4      # 引爆倒计时（秒）
-    _BLAST_RANGE = 130.0    # 爆炸范围
+    _BASE = dict(max_hp=27, speed=96, damage=45, radius=16, color=(235, 65, 65), xp_drop=4, gold_drop=2, knockback_resist=0.0)
+    _ARM_DIST = 90.0
+    _FUSE_TIME = 1.35
+    _BLAST_RANGE = 130.0
 
     def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
         d = DIFFICULTY_SETTINGS[difficulty]
         b = self._BASE
-        super().__init__(x, y,
-            max_hp=b["max_hp"] * d["hp_mul"],
-            speed=b["speed"],
-            damage=b["damage"] * d["dmg_mul"],
-            radius=b["radius"], color=b["color"],
-            xp_drop=max(1, int(b["xp_drop"] * d["reward_mul"])),
-            gold_drop=b["gold_drop"],
-            knockback_resist=b["knockback_resist"])
-        self._fuse  = 0.0
+        super().__init__(x, y, b["max_hp"] * d["hp_mul"], b["speed"], b["damage"] * d["dmg_mul"], b["radius"], b["color"], max(1, int(b["xp_drop"] * d["reward_mul"])), b["gold_drop"], b["knockback_resist"])
+        self._fuse = 0.0
         self._armed = False
-        self._pulse = 0.0
-        self._player_ref = None   # 爆炸时需要引用
 
     def _ai(self, dt: float, player) -> None:
-        self._player_ref = player
-        self._pulse = (self._pulse + dt * (6 if self._armed else 2)) % (math.pi * 2)
         dx = player.x - self.x
         dy = player.y - self.y
         dist = math.hypot(dx, dy)
-
         if dist < self._ARM_DIST:
             self._armed = True
-            self.vx = self.vy = 0.0
+            self.vx = 0.0
+            self.vy = 0.0
             self._fuse += dt
             if self._fuse >= self._FUSE_TIME:
                 self._explode(player)
         else:
             self._armed = False
-            self._fuse  = 0.0
+            self._fuse = 0.0
             if dist > 0:
                 self.vx = dx / dist * self.speed
                 self.vy = dy / dist * self.speed
 
     def _explode(self, player) -> None:
-        dx  = player.x - self.x
-        dy  = player.y - self.y
+        dx = player.x - self.x
+        dy = player.y - self.y
         dist = math.hypot(dx, dy)
         if dist < self._BLAST_RANGE:
             factor = 1.0 - dist / self._BLAST_RANGE
             player.take_damage(self.damage * factor, self.x, self.y)
-        particles.burst(self.x, self.y, (255, 120, 30),
-                        count=28, speed=160, life=0.75, size=8, gravity=50)
-        particles.burst(self.x, self.y, (255, 50, 50),
-                        count=18, speed=220, life=0.5,  size=5)
+        particles.burst(self.x, self.y, (255, 120, 30), count=32, speed=170, life=0.75, size=8, gravity=50)
+        particles.burst(self.x, self.y, (255, 70, 60), count=22, speed=230, life=0.5, size=5)
         self.alive = False
 
-    def _draw_shape(self, surface: pygame.Surface,
-                    sx: float, sy: float, flash: bool) -> None:
-        r   = self.radius
-        col = (255, 255, 255) if flash else self.color
-        shapes.circle(surface, col, sx, sy, r)
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        r = self.radius * (1.0 + self._hit_burst * 0.18)
+        color = (255, 255, 255) if flash else self.color
+        shapes.glow_circle(surface, color, sx, sy, r * 0.95, layers=2, alpha_start=45)
+        shapes.circle(surface, color, sx, sy, r)
         if not flash:
-            # 脉冲扩散圈
-            rings = 3 if self._armed else 2
-            for i in range(rings):
-                phase   = (self._pulse + i * math.pi * 2 / rings) % (math.pi * 2)
-                ring_r  = r + 6 + math.sin(phase) * (10 if self._armed else 5)
-                alpha_i = int(180 * (1 - math.sin(phase) * 0.5))
-                if self._armed:
-                    ring_col = (255, 80, 30)
-                else:
-                    ring_col = self.color
+            ring_count = 3 if self._armed else 2
+            for idx in range(ring_count):
+                phase = self._anim_t + idx * math.tau / ring_count
+                ring_r = r + 6 + math.sin(phase) * (10 if self._armed else 5)
+                ring_col = (255, 120, 40) if self._armed else self.color
                 shapes.ring(surface, ring_col, sx, sy, ring_r, 2)
-            # 倒计时弧
-            if self._armed and self._FUSE_TIME > 0:
-                progress = self._fuse / self._FUSE_TIME
-                end_angle = int(-90 + 360 * progress)
-                pygame.draw.arc(surface, (255, 255, 80),
-                                pygame.Rect(int(sx)-r, int(sy)-r, r*2, r*2),
-                                math.radians(-90), math.radians(end_angle), 3)
 
 
-# ═════════════════════════════════════════════════════
-#  精英敌人
-# ═════════════════════════════════════════════════════
+class GunnerEnemy(Enemy):
+    _BASE = dict(max_hp=62, speed=58, damage=14, radius=17, color=(235, 150, 70), xp_drop=7, gold_drop=3, knockback_resist=0.15)
+    _IDEAL_DIST = 280.0
+    _BURST_CD = 2.6
+
+    def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
+        d = DIFFICULTY_SETTINGS[difficulty]
+        b = self._BASE
+        super().__init__(x, y, b["max_hp"] * d["hp_mul"], b["speed"], b["damage"] * d["dmg_mul"], b["radius"], b["color"], max(1, int(b["xp_drop"] * d["reward_mul"])), b["gold_drop"], b["knockback_resist"])
+        self._burst_timer = self._BURST_CD * 0.5
+
+    def _ai(self, dt: float, player) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        if dist < self._IDEAL_DIST * 0.7:
+            self.vx = -dx / dist * self.speed
+            self.vy = -dy / dist * self.speed
+        elif dist > self._IDEAL_DIST:
+            self.vx = dx / dist * self.speed * 0.7
+            self.vy = dy / dist * self.speed * 0.7
+        else:
+            angle = math.atan2(dy, dx) + math.pi / 2
+            self.vx = math.cos(angle) * self.speed * 0.55
+            self.vy = math.sin(angle) * self.speed * 0.55
+
+        self._burst_timer -= dt
+        if self._burst_timer <= 0:
+            self._burst_timer = self._BURST_CD
+            self._shoot_at_player(player, 300, self.damage, (255, 185, 95), spread=0.28, count=3, shape="spike", radius=6, life=3.5)
+            particles.directional(self.x, self.y, math.atan2(dy, dx), 0.35, (255, 190, 120), count=6, speed=40, life=0.2)
+
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        angle = self._anim_t * 0.5
+        r = self.radius * (1.0 + self._hit_burst * 0.16)
+        color = (255, 255, 255) if flash else self.color
+        dark = (120, 70, 35)
+        shapes.glow_circle(surface, color, sx, sy, r * 0.95, layers=2, alpha_start=35)
+        shapes.regular_polygon(surface, color, sx, sy, r, 6, angle)
+        shapes.regular_polygon(surface, dark, sx, sy, r, 6, angle, width=2)
+        barrel_a = math.atan2(self.vy or 0.01, self.vx or 0.01)
+        bx = sx + math.cos(barrel_a) * r * 0.9
+        by = sy + math.sin(barrel_a) * r * 0.9
+        shapes.line(surface, dark, sx, sy, bx, by, 4)
+        shapes.circle(surface, dark, sx, sy, r * 0.28)
+
+
+class ArtilleryEnemy(Enemy):
+    _BASE = dict(max_hp=95, speed=42, damage=20, radius=20, color=(120, 95, 230), xp_drop=10, gold_drop=4, knockback_resist=0.25)
+    _SHOOT_CD = 3.4
+    _IDEAL_DIST = 340.0
+
+    def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
+        d = DIFFICULTY_SETTINGS[difficulty]
+        b = self._BASE
+        super().__init__(x, y, b["max_hp"] * d["hp_mul"], b["speed"], b["damage"] * d["dmg_mul"], b["radius"], b["color"], max(1, int(b["xp_drop"] * d["reward_mul"])), b["gold_drop"], b["knockback_resist"])
+        self._shoot_timer = self._SHOOT_CD * 0.35
+
+    def _ai(self, dt: float, player) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        if dist < self._IDEAL_DIST * 0.7:
+            self.vx = -dx / dist * self.speed
+            self.vy = -dy / dist * self.speed
+        elif dist > self._IDEAL_DIST:
+            self.vx = dx / dist * self.speed * 0.6
+            self.vy = dy / dist * self.speed * 0.6
+        else:
+            self.vx *= 0.85
+            self.vy *= 0.85
+
+        self._shoot_timer -= dt
+        if self._shoot_timer <= 0:
+            self._shoot_timer = self._SHOOT_CD
+            self._shoot_at_player(player, 250, self.damage, (165, 140, 255), spread=0.55, count=5, shape="bolt", radius=7, life=4.0)
+            particles.burst(self.x, self.y, (165, 140, 255), count=8, speed=45, life=0.25, size=4)
+
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        r = self.radius * (1.0 + self._hit_burst * 0.16)
+        color = (255, 255, 255) if flash else self.color
+        glow = (190, 170, 255)
+        angle = self._anim_t * 0.4
+        shapes.glow_circle(surface, color, sx, sy, r * 1.05, layers=2, alpha_start=40)
+        shapes.regular_polygon(surface, color, sx, sy, r, 8, angle)
+        shapes.regular_polygon(surface, glow, sx, sy, r, 8, angle, width=2)
+        shapes.regular_polygon(surface, glow, sx, sy, r * 0.52, 4, angle + math.pi / 4)
+        for idx in range(4):
+            a = angle + math.tau * idx / 4
+            ox = sx + math.cos(a) * r * 0.62
+            oy = sy + math.sin(a) * r * 0.62
+            shapes.circle(surface, glow, ox, oy, 2.5)
+
+
+class StormTyrantBoss(Enemy):
+    _BASE = dict(max_hp=1600, speed=78, damage=20, radius=38, color=(255, 95, 165), xp_drop=90, gold_drop=28, knockback_resist=0.9)
+    _STATE_ORDER = ("散射压制", "环阵轰击", "冲锋追猎")
+    _STATE_DURATIONS = {"散射压制": 4.2, "环阵轰击": 4.0, "冲锋追猎": 3.6}
+
+    def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
+        d = DIFFICULTY_SETTINGS[difficulty]
+        b = self._BASE
+        super().__init__(x, y, b["max_hp"] * d["hp_mul"], b["speed"], b["damage"] * d["dmg_mul"], b["radius"], b["color"], max(1, int(b["xp_drop"] * d["reward_mul"])), int(b["gold_drop"] * d["reward_mul"]), b["knockback_resist"])
+        self.is_boss = True
+        self.boss_name = "猩红风暴主宰"
+        self.attack_label = self._STATE_ORDER[0]
+        self._state_index = 0
+        self._state_timer = 0.0
+        self._shot_timer = 0.0
+        self._dash_angle = 0.0
+
+    def update(self, dt: float, player) -> None:
+        if self.hp / self.max_hp < 0.45:
+            self.speed = 94
+        super().update(dt, player)
+
+    def _ai(self, dt: float, player) -> None:
+        self._state_timer += dt
+        state = self._STATE_ORDER[self._state_index]
+        self.attack_label = state
+        if self._state_timer >= self._STATE_DURATIONS[state]:
+            self._state_index = (self._state_index + 1) % len(self._STATE_ORDER)
+            self._state_timer = 0.0
+            self._shot_timer = 0.0
+            particles.burst(self.x, self.y, self.color, count=14, speed=70, life=0.35, size=5)
+            state = self._STATE_ORDER[self._state_index]
+            self.attack_label = state
+
+        if state == "散射压制":
+            self._state_spread(dt, player)
+        elif state == "环阵轰击":
+            self._state_ring(dt, player)
+        else:
+            self._state_dash(dt, player)
+
+    def _state_spread(self, dt: float, player) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        orbit = math.atan2(dy, dx) + math.pi / 2
+        self.vx = math.cos(orbit) * self.speed * 0.75 + dx / dist * self.speed * 0.25
+        self.vy = math.sin(orbit) * self.speed * 0.75 + dy / dist * self.speed * 0.25
+
+        self._shot_timer -= dt
+        if self._shot_timer <= 0:
+            self._shot_timer = 0.55
+            self._shoot_at_player(player, 305, self.damage * 0.8, (255, 130, 185), spread=0.85, count=7, shape="spike", radius=7, life=4.4)
+            particles.directional(self.x, self.y, math.atan2(dy, dx), 0.4, (255, 150, 195), count=10, speed=70, life=0.22)
+
+    def _state_ring(self, dt: float, player) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        self.vx = -dx / dist * self.speed * 0.25
+        self.vy = -dy / dist * self.speed * 0.25
+
+        self._shot_timer -= dt
+        if self._shot_timer <= 0:
+            self._shot_timer = 0.95
+            self._shoot_ring(235, self.damage * 0.65, (255, 175, 215), count=14, shape="orb", radius=8, life=4.0)
+            self._shoot_at_player(player, 340, self.damage * 0.95, (255, 220, 240), count=1, shape="bolt", radius=8, life=4.8)
+            particles.burst(self.x, self.y, (255, 190, 220), count=18, speed=65, life=0.3, size=4)
+
+    def _state_dash(self, dt: float, player) -> None:
+        if self._shot_timer <= 0:
+            self._dash_angle = math.atan2(player.y - self.y, player.x - self.x)
+        self._shot_timer -= dt
+
+        if self._shot_timer <= -0.8:
+            self._shot_timer = 1.1
+            self._dash_angle = math.atan2(player.y - self.y, player.x - self.x)
+            self._shoot_ring(200, self.damage * 0.45, (255, 120, 170), count=8, shape="bolt", radius=6, life=2.8)
+            particles.burst(self.x, self.y, (255, 110, 170), count=12, speed=80, life=0.28, size=4)
+
+        dash_speed = 420 if self._shot_timer < 0.25 else 110
+        self.vx = math.cos(self._dash_angle) * dash_speed
+        self.vy = math.sin(self._dash_angle) * dash_speed
+
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        r = self.radius * (1.0 + math.sin(self._anim_t * 1.2) * 0.05 + self._hit_burst * 0.14)
+        color = (255, 255, 255) if flash else self.color
+        glow = (255, 180, 215)
+        angle = self._anim_t * 0.55
+        shapes.glow_circle(surface, color, sx, sy, r * 1.2, layers=4, alpha_start=46)
+        shapes.regular_polygon(surface, color, sx, sy, r, 10, angle)
+        shapes.regular_polygon(surface, (120, 20, 55), sx, sy, r, 10, angle, width=3)
+        shapes.regular_polygon(surface, glow, sx, sy, r * 0.62, 5, -angle)
+        shapes.circle(surface, (255, 245, 250), sx, sy, r * 0.22)
+        for idx in range(4):
+            oa = angle + math.tau * idx / 4
+            ox = sx + math.cos(oa) * r * 1.18
+            oy = sy + math.sin(oa) * r * 1.18
+            shapes.circle(surface, glow, ox, oy, 4)
+
 
 class EliteSummoner(ZombieEnemy):
-    """超级僵尸：每 5 秒召唤 3 只小僵尸。"""
-
-    _SUMMON_CD    = 5.0
+    _SUMMON_CD = 5.0
     _SUMMON_COUNT = 3
 
     def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
         super().__init__(x, y, difficulty)
-        self.max_hp    *= _E_HP;   self.hp = self.max_hp
-        self.damage    *= _E_DMG
-        self.radius     = int(self.radius * _E_RAD)
-        self.xp_drop    = int(self.xp_drop  * _E_RWD)
-        self.gold_drop  = int(self.gold_drop * _E_RWD)
-        self.speed     *= 0.8
-        self.color      = (20, 150, 30)
+        self.max_hp *= _ELITE_HP
+        self.hp = self.max_hp
+        self.damage *= _ELITE_DMG
+        self.radius = int(self.radius * _ELITE_RAD)
+        self.xp_drop = int(self.xp_drop * _ELITE_RWD)
+        self.gold_drop = int(self.gold_drop * _ELITE_RWD)
+        self.speed *= 0.8
+        self.color = (30, 165, 50)
         self._summon_cd = self._SUMMON_CD * 0.5
-        self._anim      = 0.0
-
-    def update(self, dt: float, player) -> None:
-        self._anim = (self._anim + dt * 2) % (math.pi * 2)
-        super().update(dt, player)
 
     def _ai(self, dt: float, player) -> None:
         super()._ai(dt, player)
         self._summon_cd -= dt
         if self._summon_cd <= 0:
             self._summon_cd = self._SUMMON_CD
-            for i in range(self._SUMMON_COUNT):
-                a  = math.pi * 2 * i / self._SUMMON_COUNT
-                sx = self.x + math.cos(a) * self.radius * 3
-                sy = self.y + math.sin(a) * self.radius * 3
+            for idx in range(self._SUMMON_COUNT):
+                angle = math.tau * idx / self._SUMMON_COUNT
+                sx = self.x + math.cos(angle) * self.radius * 3
+                sy = self.y + math.sin(angle) * self.radius * 3
                 self.pending_spawns.append(("zombie", sx, sy))
-            particles.burst(self.x, self.y, self.color,
-                            count=10, speed=45, life=0.5, size=4)
-
-    def _draw_shape(self, surface: pygame.Surface,
-                    sx: float, sy: float, flash: bool) -> None:
-        super()._draw_shape(surface, sx, sy, flash)
-        if not flash:
-            # 皇冠光圈
-            shapes.ring(surface, (80, 255, 100),
-                        sx, sy - self.radius - 6,
-                        self.radius * 0.7, 2)
-            for i in range(3):
-                a  = self._anim + i * math.pi * 2 / 3
-                cx = sx + math.cos(a) * self.radius * 0.7
-                cy = sy - self.radius - 6 + math.sin(a) * self.radius * 0.5
-                shapes.circle(surface, (80, 255, 100), cx, cy, 3)
+            particles.burst(self.x, self.y, self.color, count=12, speed=50, life=0.5, size=4)
 
 
 class EliteBerserker(TankEnemy):
-    """超级重甲：HP < 50% 进入暴怒，速度翻倍，颜色变红。"""
-
     def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
         super().__init__(x, y, difficulty)
-        self.max_hp   *= _E_HP;   self.hp = self.max_hp
-        self.damage   *= _E_DMG
-        self.radius    = int(self.radius * _E_RAD)
-        self.xp_drop   = int(self.xp_drop  * _E_RWD)
-        self.gold_drop = int(self.gold_drop * _E_RWD)
+        self.max_hp *= _ELITE_HP
+        self.hp = self.max_hp
+        self.damage *= _ELITE_DMG
+        self.radius = int(self.radius * _ELITE_RAD)
+        self.xp_drop = int(self.xp_drop * _ELITE_RWD)
+        self.gold_drop = int(self.gold_drop * _ELITE_RWD)
         self.knockback_resist = 0.85
-        self.color     = (70, 90, 130)
+        self.color = (70, 90, 130)
         self._base_speed = self.speed
-        self._rage_timer = 0.0
 
     @property
     def enraged(self) -> bool:
@@ -563,67 +761,43 @@ class EliteBerserker(TankEnemy):
     def update(self, dt: float, player) -> None:
         if self.enraged:
             self.speed = self._base_speed * 2.0
-            self._rage_timer = (self._rage_timer + dt * 5) % (math.pi * 2)
-            # 偶发怒焰粒子
             if rng.chance(dt * 3):
-                particles.sparkle(self.x, self.y,
-                                   (255, 50, 20), count=2, radius=self.radius)
+                particles.sparkle(self.x, self.y, (255, 60, 30), count=2, radius=self.radius)
         else:
             self.speed = self._base_speed
         super().update(dt, player)
 
-    def _draw_shape(self, surface: pygame.Surface,
-                    sx: float, sy: float, flash: bool) -> None:
-        col = (255, 255, 255) if flash else (
-            (200, 50, 30) if self.enraged else self.color)
-        dark = (50, 65, 90) if not self.enraged else (140, 20, 10)
-        r = self.radius
-        a = self._angle
-        shapes.regular_polygon(surface, col,  sx, sy, r,     4, a)
-        shapes.regular_polygon(surface, dark, sx, sy, r,     4, a, width=2)
-        shapes.regular_polygon(surface, dark, sx, sy, r*0.5, 4, a + math.pi/4)
-        # 暴怒时画尖刺
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
         if self.enraged and not flash:
-            for i in range(4):
-                sa = a + i * math.pi / 2
-                tip_x = sx + math.cos(sa) * r * 1.55
-                tip_y = sy + math.sin(sa) * r * 1.55
-                shapes.line(surface, (255, 80, 20),
-                            sx + math.cos(sa) * r,
-                            sy + math.sin(sa) * r,
-                            tip_x, tip_y, 3)
+            self.color = (200, 70, 55)
+        super()._draw_shape(surface, sx, sy, flash)
 
 
 class EliteAssassin(SpeederEnemy):
-    """超级速行者：每 4s 瞬移至玩家背后，留下残影。"""
-
-    _TELEPORT_CD   = 4.0
-    _BEHIND_DIST   = 55.0
+    _TELEPORT_CD = 4.0
+    _BEHIND_DIST = 55.0
 
     def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
         super().__init__(x, y, difficulty)
-        self.max_hp   *= _E_HP;   self.hp = self.max_hp
-        self.damage   *= _E_DMG
-        self.radius    = int(self.radius * _E_RAD)
-        self.xp_drop   = int(self.xp_drop  * _E_RWD)
-        self.gold_drop = int(self.gold_drop * _E_RWD)
-        self.speed    *= 1.3
-        self.color     = (120, 30, 200)
-        self._tp_cd    = self._TELEPORT_CD * 0.3
-        self._ghosts: list[tuple[float, float, float]] = []   # (x, y, alpha)
+        self.max_hp *= _ELITE_HP
+        self.hp = self.max_hp
+        self.damage *= _ELITE_DMG
+        self.radius = int(self.radius * _ELITE_RAD)
+        self.xp_drop = int(self.xp_drop * _ELITE_RWD)
+        self.gold_drop = int(self.gold_drop * _ELITE_RWD)
+        self.speed *= 1.3
+        self.color = (135, 40, 215)
+        self._tp_cd = self._TELEPORT_CD * 0.3
+        self._ghosts: list[tuple[float, float, float]] = []
 
     def update(self, dt: float, player) -> None:
         self._tp_cd -= dt
-        # 残影衰减
-        self._ghosts = [(gx, gy, a - dt * 300)
-                        for gx, gy, a in self._ghosts if a > 20]
+        self._ghosts = [(gx, gy, alpha - dt * 300) for gx, gy, alpha in self._ghosts if alpha > 20]
         if self._tp_cd <= 0:
             self._teleport(player)
             self._tp_cd = self._TELEPORT_CD
         super().update(dt, player)
-        # 高速时留下残影
-        spd = math.hypot(self.vx, self.vy)
-        if spd > 200 and rng.chance(dt * 10):
+        if math.hypot(self.vx, self.vy) > 200 and rng.chance(dt * 10):
             self._ghosts.append((self.x, self.y, 180))
 
     def _teleport(self, player) -> None:
@@ -632,51 +806,70 @@ class EliteAssassin(SpeederEnemy):
         ty = player.y + math.sin(behind) * self._BEHIND_DIST
         self._ghosts.append((self.x, self.y, 200))
         self.x, self.y = tx, ty
-        self.kb_vx = self.kb_vy = 0
-        particles.burst(tx, ty, self.color,
-                        count=8, speed=55, life=0.3, size=4)
+        self.kb_vx = 0.0
+        self.kb_vy = 0.0
+        particles.burst(tx, ty, self.color, count=10, speed=60, life=0.3, size=4)
 
     def draw(self, surface: pygame.Surface, cam) -> None:
-        # 先画残影
-        for gx, gy, ga in self._ghosts:
+        for gx, gy, alpha in self._ghosts:
             if not cam.is_visible(gx, gy, self.radius):
                 continue
             gsx, gsy = cam.world_to_screen(gx, gy)
-            ghost_surf = pygame.Surface(
-                (self.radius * 4, self.radius * 4), pygame.SRCALPHA)
-            pygame.draw.circle(ghost_surf, (*self.color, int(ga)),
-                               (self.radius * 2, self.radius * 2), self.radius)
-            surface.blit(ghost_surf,
-                         (int(gsx) - self.radius * 2, int(gsy) - self.radius * 2))
+            ghost = pygame.Surface((self.radius * 4, self.radius * 4), pygame.SRCALPHA)
+            pygame.draw.circle(ghost, (*self.color, int(alpha)), (self.radius * 2, self.radius * 2), self.radius)
+            surface.blit(ghost, (int(gsx) - self.radius * 2, int(gsy) - self.radius * 2))
         super().draw(surface, cam)
 
 
-# ═════════════════════════════════════════════════════
-#  工厂函数
-# ═════════════════════════════════════════════════════
+class EliteSentinel(ArtilleryEnemy):
+    _BARRAGE_CD = 2.0
+
+    def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
+        super().__init__(x, y, difficulty)
+        self.max_hp *= _ELITE_HP
+        self.hp = self.max_hp
+        self.damage *= _ELITE_DMG
+        self.radius = int(self.radius * _ELITE_RAD)
+        self.xp_drop = int(self.xp_drop * _ELITE_RWD)
+        self.gold_drop = int(self.gold_drop * _ELITE_RWD)
+        self.color = (210, 100, 255)
+        self._shoot_timer = self._BARRAGE_CD * 0.5
+
+    def _ai(self, dt: float, player) -> None:
+        super()._ai(dt, player)
+        self._shoot_timer -= dt
+        if self._shoot_timer <= 0:
+            self._shoot_timer = self._BARRAGE_CD
+            self._shoot_at_player(player, 285, self.damage * 0.85, (230, 140, 255), spread=0.8, count=7, shape="bolt", radius=7.5, life=4.2)
+            particles.burst(self.x, self.y, (220, 150, 255), count=12, speed=50, life=0.3, size=4)
+
 
 _NORMAL_MAP: dict[str, type] = {
-    "zombie":   ZombieEnemy,
-    "speeder":  SpeederEnemy,
-    "tank":     TankEnemy,
-    "wizard":   WizardEnemy,
+    "zombie": ZombieEnemy,
+    "speeder": SpeederEnemy,
+    "lancer": LancerEnemy,
+    "wisp": WispEnemy,
+    "tank": TankEnemy,
+    "wizard": WizardEnemy,
     "exploder": ExploderEnemy,
+    "gunner": GunnerEnemy,
+    "artillery": ArtilleryEnemy,
+    "storm_tyrant": StormTyrantBoss,
 }
 
 _ELITE_MAP: dict[str, type] = {
-    "elite_summoner":  EliteSummoner,
+    "elite_summoner": EliteSummoner,
     "elite_berserker": EliteBerserker,
-    "elite_assassin":  EliteAssassin,
+    "elite_assassin": EliteAssassin,
+    "elite_sentinel": EliteSentinel,
 }
 
-ALL_ENEMY_TYPES  = list(_NORMAL_MAP.keys())
-ALL_ELITE_TYPES  = list(_ELITE_MAP.keys())
+ALL_ENEMY_TYPES = list(_NORMAL_MAP.keys())
+ALL_ELITE_TYPES = list(_ELITE_MAP.keys())
 
 
-def create_enemy(etype: str, x: float, y: float,
-                 difficulty: int = 1) -> Enemy:
-    """工厂函数：按类型名创建敌人。"""
+def create_enemy(etype: str, x: float, y: float, difficulty: int = 1) -> Enemy:
     cls = _NORMAL_MAP.get(etype) or _ELITE_MAP.get(etype)
     if cls is None:
-        raise ValueError(f"未知敌人类型: {etype}")
+        raise ValueError(f"Unknown enemy type: {etype}")
     return cls(x, y, difficulty)
