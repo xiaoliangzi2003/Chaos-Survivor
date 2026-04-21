@@ -59,6 +59,7 @@ class Game:
 
     def _register_scenes(self) -> None:
         from src.scenes.battle import BattleScene
+        from src.scenes.bestiary import BestiaryScene
         from src.scenes.menu import MenuScene
         from src.scenes.pause import PauseScene
         from src.scenes.result import ResultScene
@@ -73,6 +74,7 @@ class Game:
             "upgrade": UpgradeScene(self),
             "shop": ShopScene(self),
             "settings": SettingsScene(self),
+            "bestiary": BestiaryScene(self),
             "result": ResultScene(self),
         }
 

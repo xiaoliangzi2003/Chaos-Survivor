@@ -13,7 +13,7 @@ from src.entities.entity import Entity
 from src.render import shapes
 from src.render.particles import particles
 
-_ELITE_HP = 4.0
+_ELITE_HP = 10.0
 _ELITE_DMG = 2.0
 _ELITE_RWD = 3.0
 _ELITE_RAD = 1.35
@@ -265,7 +265,8 @@ class Enemy(Entity):
 
 
 class ZombieEnemy(Enemy):
-    _BASE = dict(max_hp=34, speed=78, damage=8, radius=15, color=(55, 185, 90), xp_drop=2, gold_drop=1, knockback_resist=0.0)
+    _BASE = dict(max_hp=66, speed=100, damage=8, radius=20, color=(55, 185, 90), xp_drop=2, gold_drop=1,
+                 knockback_resist=0.0)
 
     def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
         d = DIFFICULTY_SETTINGS[difficulty]
@@ -290,7 +291,8 @@ class ZombieEnemy(Enemy):
 
 
 class SpeederEnemy(Enemy):
-    _BASE = dict(max_hp=20, speed=88, damage=7, radius=12, color=(235, 220, 70), xp_drop=3, gold_drop=1, knockback_resist=0.0)
+    _BASE = dict(max_hp=44, speed=120, damage=7, radius=12, color=(235, 220, 70), xp_drop=3, gold_drop=1,
+                 knockback_resist=0.0)
     _CHARGE_SPEED = 360.0
     _CHARGE_INTERVAL = 3.0
     _CHARGE_DUR = 0.55
@@ -349,7 +351,8 @@ class SpeederEnemy(Enemy):
 
 
 class LancerEnemy(Enemy):
-    _BASE = dict(max_hp=28, speed=76, damage=10, radius=11, color=(255, 160, 80), xp_drop=3, gold_drop=1, knockback_resist=0.05)
+    _BASE = dict(max_hp=47, speed=89, damage=10, radius=11, color=(255, 160, 80), xp_drop=3, gold_drop=1,
+                 knockback_resist=0.05)
     _LUNGE_CD = 2.2
     _LUNGE_DUR = 0.38
     _LUNGE_SPEED = 420
@@ -401,7 +404,8 @@ class LancerEnemy(Enemy):
 
 
 class WispEnemy(Enemy):
-    _BASE = dict(max_hp=24, speed=74, damage=9, radius=10, color=(100, 240, 255), xp_drop=4, gold_drop=1, knockback_resist=0.0)
+    _BASE = dict(max_hp=45, speed=88, damage=9, radius=10, color=(100, 240, 255), xp_drop=4, gold_drop=1,
+                 knockback_resist=0.0)
     _IDEAL_DIST = 180.0
     _SHOOT_CD = 1.8
 
@@ -445,9 +449,9 @@ class WispEnemy(Enemy):
 
 class SlimeEnemy(Enemy):
     _SIZE_DATA = {
-        "large": {"hp": 68, "speed": 86, "damage": 12, "radius": 26, "xp": 7, "gold": 3, "children": ("medium", 3)},
-        "medium": {"hp": 30, "speed": 124, "damage": 8, "radius": 18, "xp": 4, "gold": 1, "children": ("small", 3)},
-        "small": {"hp": 12, "speed": 178, "damage": 5, "radius": 11, "xp": 2, "gold": 0, "children": None},
+        "large": {"hp": 144, "speed": 86, "damage": 12, "radius": 26, "xp": 7, "gold": 3, "children": ("medium", 3)},
+        "medium": {"hp": 70, "speed": 124, "damage": 8, "radius": 18, "xp": 4, "gold": 1, "children": ("small", 3)},
+        "small": {"hp": 25, "speed": 178, "damage": 5, "radius": 11, "xp": 2, "gold": 0, "children": None},
     }
     _COLOR_POOL = (
         (120, 230, 120),
@@ -508,7 +512,8 @@ class SlimeEnemy(Enemy):
 
 
 class BlackHoleMage(Enemy):
-    _BASE = dict(max_hp=76, speed=54, damage=12, radius=18, color=(88, 72, 170), xp_drop=8, gold_drop=3, knockback_resist=0.1)
+    _BASE = dict(max_hp=100, speed=59, damage=12, radius=18, color=(88, 72, 170), xp_drop=8, gold_drop=3,
+                 knockback_resist=0.1)
     _IDEAL_DIST = 250.0
     _CAST_CD = 8.2
 
@@ -760,9 +765,10 @@ class LineRaiderEnemy(Enemy):
 
 
 class ShieldCasterEnemy(Enemy):
-    _BASE = dict(max_hp=58, speed=68, damage=0, radius=16, color=(110, 205, 255), xp_drop=7, gold_drop=2, knockback_resist=0.08)
+    _BASE = dict(max_hp=400.0, speed=68, damage=0, radius=16, color=(110, 205, 255), xp_drop=7, gold_drop=2,
+                 knockback_resist=0.08)
     _IDEAL_DIST = 250.0
-    _AURA_RADIUS = 260.0
+    _AURA_RADIUS = 700.0
 
     def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
         d = DIFFICULTY_SETTINGS[difficulty]
@@ -804,7 +810,8 @@ class ShieldCasterEnemy(Enemy):
 
 
 class EliteMissileSniper(Enemy):
-    _BASE = dict(max_hp=165, speed=58, damage=18, radius=20, color=(255, 120, 70), xp_drop=18, gold_drop=7, knockback_resist=0.3)
+    _BASE = dict(max_hp=350.0, speed=76, damage=18, radius=20, color=(255, 120, 70), xp_drop=18, gold_drop=7,
+                 knockback_resist=0.3)
     _IDEAL_DIST = 360.0
     _CHARGE_TIME = 1.0
     _SHOT_CD = 4.8
@@ -910,7 +917,8 @@ class EliteMissileSniper(Enemy):
 
 
 class TankEnemy(Enemy):
-    _BASE = dict(max_hp=130, speed=46, damage=22, radius=22, color=(95, 130, 175), xp_drop=8, gold_drop=3, knockback_resist=0.6)
+    _BASE = dict(max_hp=832, speed=46, damage=22, radius=22, color=(95, 130, 175), xp_drop=8, gold_drop=3,
+                 knockback_resist=0.6)
 
     def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
         d = DIFFICULTY_SETTINGS[difficulty]
@@ -934,7 +942,8 @@ class TankEnemy(Enemy):
 
 
 class WizardEnemy(Enemy):
-    _BASE = dict(max_hp=44, speed=64, damage=12, radius=14, color=(165, 60, 230), xp_drop=5, gold_drop=2, knockback_resist=0.0)
+    _BASE = dict(max_hp=89, speed=64, damage=12, radius=14, color=(165, 60, 230), xp_drop=5, gold_drop=2,
+                 knockback_resist=0.0)
     _IDEAL_DIST = 210.0
     _SHOOT_CD = 2.25
 
@@ -983,7 +992,8 @@ class WizardEnemy(Enemy):
 
 
 class ExploderEnemy(Enemy):
-    _BASE = dict(max_hp=27, speed=96, damage=45, radius=16, color=(235, 65, 65), xp_drop=4, gold_drop=2, knockback_resist=0.0)
+    _BASE = dict(max_hp=49, speed=144, damage=45, radius=16, color=(235, 65, 65), xp_drop=4, gold_drop=2,
+                 knockback_resist=0.0)
     _ARM_DIST = 90.0
     _FUSE_TIME = 1.35
     _BLAST_RANGE = 130.0
@@ -1039,7 +1049,8 @@ class ExploderEnemy(Enemy):
 
 
 class GunnerEnemy(Enemy):
-    _BASE = dict(max_hp=62, speed=58, damage=14, radius=17, color=(235, 150, 70), xp_drop=7, gold_drop=3, knockback_resist=0.15)
+    _BASE = dict(max_hp=111, speed=67, damage=14, radius=17, color=(235, 150, 70), xp_drop=7, gold_drop=3,
+                 knockback_resist=0.15)
     _IDEAL_DIST = 280.0
     _BURST_CD = 2.6
 
@@ -1086,7 +1097,8 @@ class GunnerEnemy(Enemy):
 
 
 class ArtilleryEnemy(Enemy):
-    _BASE = dict(max_hp=95, speed=42, damage=20, radius=20, color=(120, 95, 230), xp_drop=10, gold_drop=4, knockback_resist=0.25)
+    _BASE = dict(max_hp=125, speed=62, damage=20, radius=20, color=(120, 95, 230), xp_drop=10, gold_drop=4,
+                 knockback_resist=0.25)
     _SHOOT_CD = 3.4
     _IDEAL_DIST = 340.0
 
@@ -1133,7 +1145,8 @@ class ArtilleryEnemy(Enemy):
 
 
 class BlinkSkirmisherEnemy(Enemy):
-    _BASE = dict(max_hp=48, speed=82, damage=14, radius=14, color=(70, 230, 210), xp_drop=6, gold_drop=2, knockback_resist=0.08)
+    _BASE = dict(max_hp=95, speed=84, damage=14, radius=14, color=(70, 230, 210), xp_drop=6, gold_drop=2,
+                 knockback_resist=0.08)
     _IDEAL_DIST = 190.0
     _TELEPORT_CD = 4.6
 
@@ -1211,7 +1224,8 @@ class BlinkSkirmisherEnemy(Enemy):
 
 
 class EmbermineEnemy(Enemy):
-    _BASE = dict(max_hp=72, speed=56, damage=11, radius=18, color=(240, 120, 78), xp_drop=8, gold_drop=3, knockback_resist=0.16)
+    _BASE = dict(max_hp=96, speed=66, damage=11, radius=18, color=(240, 120, 78), xp_drop=8, gold_drop=3,
+                 knockback_resist=0.16)
     _IDEAL_DIST = 245.0
     _MINE_CD = 2.3
     _SHOT_CD = 4.4
@@ -1300,7 +1314,8 @@ class EmbermineEnemy(Enemy):
 
 
 class SiegePylonEnemy(Enemy):
-    _BASE = dict(max_hp=96, speed=34, damage=18, radius=20, color=(95, 205, 255), xp_drop=10, gold_drop=4, knockback_resist=0.28)
+    _BASE = dict(max_hp=196, speed=44, damage=18, radius=20, color=(95, 205, 255), xp_drop=10, gold_drop=4,
+                 knockback_resist=0.28)
     _IDEAL_DIST = 310.0
     _CHARGE_CD = 3.9
     _CHARGE_TIME = 0.75
@@ -1364,7 +1379,8 @@ class SiegePylonEnemy(Enemy):
 
 
 class RazorbatEnemy(Enemy):
-    _BASE = dict(max_hp=24, speed=108, damage=8, radius=10, color=(255, 115, 185), xp_drop=5, gold_drop=1, knockback_resist=0.02)
+    _BASE = dict(max_hp=44, speed=138, damage=8, radius=10, color=(255, 115, 185), xp_drop=5, gold_drop=1,
+                 knockback_resist=0.02)
     _PERCH_DIST = 220.0
     _SWOOP_CD = 2.7
     _SWOOP_DUR = 0.62
@@ -1432,7 +1448,8 @@ class RazorbatEnemy(Enemy):
 
 
 class BroodSeederEnemy(Enemy):
-    _BASE = dict(max_hp=58, speed=52, damage=8, radius=16, color=(145, 205, 90), xp_drop=7, gold_drop=2, knockback_resist=0.08)
+    _BASE = dict(max_hp=96, speed=62, damage=8, radius=16, color=(145, 205, 90), xp_drop=7, gold_drop=2,
+                 knockback_resist=0.08)
     _IDEAL_DIST = 265.0
     _SUMMON_CD = 6.7
     _SHOT_CD = 2.8

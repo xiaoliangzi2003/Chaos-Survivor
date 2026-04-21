@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import pygame
 
+from src.core.bestiary import draw_bestiary_icon
 from src.core.config import DIFFICULTY_NAMES, GOLD, GRAY, SCREEN_HEIGHT, SCREEN_WIDTH, WHITE
 from src.core.profile import clamp_difficulty, get_max_unlocked_difficulty
 from src.core.scene import Scene
@@ -16,11 +17,13 @@ class MenuScene(Scene):
         self._font_item = get_font(38)
         self._font_small = get_font(24)
         self._font_hint = get_font(18)
+        self._font_icon = get_font(20, bold=True)
         self._items = ["开始游戏", "难度", "显示模式", "配置", "退出游戏"]
         self._selected = 0
         self._unlocked_difficulty = get_max_unlocked_difficulty()
         preferred = kwargs.get("difficulty", getattr(self, "_difficulty", 0))
         self._difficulty = min(clamp_difficulty(preferred), self._unlocked_difficulty)
+        self._bestiary_hover = False
 
     def handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN:
@@ -34,8 +37,13 @@ class MenuScene(Scene):
                 self._adjust_selected(1)
             elif event.key in (pygame.K_RETURN, pygame.K_SPACE):
                 self._activate()
+            elif event.key == pygame.K_b:
+                self._open_bestiary()
         elif event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             mx, my = self.game.get_mouse_pos()
+            if self._bestiary_rect().collidepoint(mx, my):
+                self._open_bestiary()
+                return
             for idx, rect in enumerate(self._item_rects()):
                 if rect.collidepoint(mx, my):
                     self._selected = idx
@@ -71,6 +79,7 @@ class MenuScene(Scene):
 
     def update(self, dt: float) -> None:
         mx, my = self.game.get_mouse_pos()
+        self._bestiary_hover = self._bestiary_rect().collidepoint(mx, my)
         for idx, rect in enumerate(self._item_rects()):
             if rect.collidepoint(mx, my):
                 self._selected = idx
@@ -115,8 +124,16 @@ class MenuScene(Scene):
         tip_text = self._font_small.render(tip, True, (150, 170, 205))
         surface.blit(tip_text, tip_text.get_rect(centerx=SCREEN_WIDTH // 2, y=SCREEN_HEIGHT - 86))
 
-        hint = self._font_hint.render("方向键或 WASD 选择，回车确认，F11 可切换全屏", True, (112, 122, 150))
+        hint = self._font_hint.render("方向键或 WASD 选择，回车确认，B 可打开图鉴，F11 可切换全屏", True, (112, 122, 150))
         surface.blit(hint, hint.get_rect(centerx=SCREEN_WIDTH // 2, y=SCREEN_HEIGHT - 46))
+
+        icon_rect = self._bestiary_rect()
+        draw_bestiary_icon(surface, icon_rect, active=self._bestiary_hover)
+        label = self._font_icon.render("图鉴", True, GOLD if self._bestiary_hover else WHITE)
+        surface.blit(label, label.get_rect(midleft=(icon_rect.right + 12, icon_rect.centery)))
+
+    def _open_bestiary(self) -> None:
+        self.game.push_scene("bestiary")
 
     def _draw_backdrop(self, surface: pygame.Surface) -> None:
         for idx in range(5):
@@ -137,3 +154,6 @@ class MenuScene(Scene):
         start_y = 270
         x = SCREEN_WIDTH // 2 - width // 2
         return [pygame.Rect(x, start_y + idx * (height + gap), width, height) for idx in range(len(self._items))]
+
+    def _bestiary_rect(self) -> pygame.Rect:
+        return pygame.Rect(24, SCREEN_HEIGHT - 86, 60, 60)
