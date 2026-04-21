@@ -3,3 +3,5 @@
 save
 plan.md
 REQUIREMENTS.md
+src/gameplay_settings.json
+src/player_profile.json
