@@ -94,6 +94,7 @@ class BattleScene(Scene):
         self._shop_refresh_count = 0
         self._shop_message = ""
         self._boss_intro_timer = 0.0
+        self._low_detail = False
 
         self._red_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
         camera.update(0, 0, 0, bounds=self._bounds)
@@ -109,6 +110,7 @@ class BattleScene(Scene):
             damage_numbers.update(dt * 0.35)
             return
 
+        self._update_perf_profile()
         hazard_force = self._hazards.update(dt, self._player)
         self._player.update(dt, bounds=self._bounds, external_force=hazard_force)
         camera.update(self._player.x, self._player.y, dt, bounds=self._bounds)
@@ -126,8 +128,8 @@ class BattleScene(Scene):
         self._update_enemies(dt)
         self._update_grid()
         self._update_weapons(dt)
-        self._projectiles.update(dt, self._enemies, self._grid)
-        self._enemy_bullets.update(dt, self._player)
+        self._projectiles.update(dt, self._enemies, self._grid, self._bounds)
+        self._enemy_bullets.update(dt, self._player, self._bounds)
         self._check_player_enemy_collision()
         self._collect_dead()
         self._pickups.update(dt, self._player)
@@ -139,7 +141,8 @@ class BattleScene(Scene):
         self._hazards.draw(surface, camera)
         self._pickups.draw(surface, camera)
 
-        for enemy in sorted(self._enemies, key=lambda item: item.y):
+        visible_enemies = [enemy for enemy in self._enemies if camera.is_visible(enemy.x, enemy.y, enemy.radius + 18)]
+        for enemy in sorted(visible_enemies, key=lambda item: item.y):
             enemy.draw(surface, camera)
 
         for weapon in self._player.weapons:
@@ -187,7 +190,13 @@ class BattleScene(Scene):
             ey = self._player.y + math.sin(angle) * distance
             kwargs = {}
 
-        enemy = create_enemy(etype, *self._clamp_position(ex, ey, 18), self.difficulty, **kwargs)
+        if etype == "line_raider":
+            kwargs.setdefault("world_bounds", self._bounds)
+            kwargs.setdefault("target_x", self._player.x)
+            kwargs.setdefault("target_y", self._player.y)
+            enemy = create_enemy(etype, ex, ey, self.difficulty, **kwargs)
+        else:
+            enemy = create_enemy(etype, *self._clamp_position(ex, ey, 18), self.difficulty, **kwargs)
         if boss_rank is not None:
             self._configure_boss(enemy, etype, boss_rank)
         self._enemies.append(enemy)
@@ -215,7 +224,8 @@ class BattleScene(Scene):
     def _update_enemies(self, dt: float) -> None:
         for enemy in self._enemies:
             enemy.update(dt, self._player)
-            enemy.x, enemy.y = self._clamp_position(enemy.x, enemy.y, enemy.radius)
+            if not getattr(enemy, "ignore_world_clamp", False):
+                enemy.x, enemy.y = self._clamp_position(enemy.x, enemy.y, enemy.radius)
             for spawn in enemy.pending_spawns:
                 if len(self._enemies) < MAX_ENEMIES:
                     self._spawn_one(spawn)
@@ -241,7 +251,7 @@ class BattleScene(Scene):
     def _check_player_enemy_collision(self) -> None:
         nearby = self._grid.query_radius(self._player.x, self._player.y, self._player.radius + 80)
         for enemy in nearby:
-            if not enemy.alive or not self._player.collides_with(enemy):
+            if not enemy.alive or not getattr(enemy, "contact_damage", True) or not self._player.collides_with(enemy):
                 continue
             actual = self._player.take_damage(enemy.damage, enemy.x, enemy.y)
             if actual > 0:
@@ -341,6 +351,23 @@ class BattleScene(Scene):
             self._hitstop_timer = max(self._hitstop_timer, 0.05)
             camera.shake(SCREENSHAKE_PLAYER_HIT, 5.5)
             particles.burst(self._player.x, self._player.y, (255, 90, 90), count=16, speed=110, life=0.35, size=4)
+
+    def _update_perf_profile(self) -> None:
+        total_bullets = self._enemy_bullets.count + self._projectiles.count
+        pressure = len(self._enemies) + total_bullets * 0.95 + particles.count * 0.3 + self._hazards.count * 10
+        self._low_detail = pressure >= 250
+        medium_detail = pressure >= 170
+
+        if self._low_detail:
+            particles.configure(spawn_scale=0.45, draw_limit=260, low_detail=True)
+        elif medium_detail:
+            particles.configure(spawn_scale=0.7, draw_limit=440, low_detail=False)
+        else:
+            particles.configure(spawn_scale=1.0, draw_limit=800, low_detail=False)
+
+        self._projectiles.set_low_detail(self._low_detail)
+        self._enemy_bullets.set_low_detail(self._low_detail)
+        self._hazards.set_low_detail(self._low_detail)
 
     def _draw_screen_flash(self, surface: pygame.Surface) -> None:
         flash = self._player.screen_flash

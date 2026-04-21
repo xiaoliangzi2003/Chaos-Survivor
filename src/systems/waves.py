@@ -204,8 +204,10 @@ class WaveSystem:
                 return "wisp"
             if roll < 0.72:
                 return "slime_large"
-            if roll < 0.82:
+            if roll < 0.78:
                 return "blackhole_mage"
+            if roll < 0.86:
+                return "line_raider"
             if roll < 0.90:
                 return "wizard"
             return "gunner"
@@ -220,13 +222,15 @@ class WaveSystem:
                 return "wisp"
             if roll < 0.58:
                 return "slime_large"
-            if roll < 0.68:
+            if roll < 0.66:
                 return "blackhole_mage"
-            if roll < 0.78:
+            if roll < 0.74:
+                return "line_raider"
+            if roll < 0.82:
                 return "wizard"
-            if roll < 0.88:
+            if roll < 0.90:
                 return "gunner"
-            if roll < 0.95:
+            if roll < 0.96:
                 return "artillery"
             return "tank"
         if roll < 0.12:
@@ -239,14 +243,16 @@ class WaveSystem:
             return "wisp"
         if roll < 0.52:
             return "slime_large"
-        if roll < 0.62:
+        if roll < 0.60:
             return "blackhole_mage"
-        if roll < 0.72:
+        if roll < 0.68:
+            return "line_raider"
+        if roll < 0.76:
             return "wizard"
-        if roll < 0.82:
+        if roll < 0.86:
             return "gunner"
-        if roll < 0.92:
+        if roll < 0.94:
             return "artillery"
-        if roll < 0.97:
+        if roll < 0.98:
             return "exploder"
         return "tank"

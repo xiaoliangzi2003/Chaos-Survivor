@@ -21,6 +21,7 @@ _KB_DECAY = 9.0
 
 class Enemy(Entity):
     HIT_FLASH = 0.08
+    _shadow_cache: dict[int, pygame.Surface] = {}
 
     def __init__(
         self,
@@ -47,6 +48,8 @@ class Enemy(Entity):
         self.is_boss = False
         self.boss_name = ""
         self.attack_label = ""
+        self.contact_damage = True
+        self.ignore_world_clamp = False
 
         self.vx = 0.0
         self.vy = 0.0
@@ -134,9 +137,19 @@ class Enemy(Entity):
         self._draw_hp_bar(surface, sx, sy)
 
     def _draw_shadow(self, surface: pygame.Surface, sx: float, sy: float) -> None:
-        shadow = pygame.Surface((int(self.radius * 4), int(self.radius * 2.2)), pygame.SRCALPHA)
-        pygame.draw.ellipse(shadow, (0, 0, 0, 65), shadow.get_rect())
+        shadow = self._get_shadow_surface()
         surface.blit(shadow, (int(sx - shadow.get_width() / 2), int(sy + self.radius * 0.6)))
+
+    def _get_shadow_surface(self) -> pygame.Surface:
+        key = max(4, int(self.radius * 10))
+        shadow = self._shadow_cache.get(key)
+        if shadow is None:
+            width = max(8, int(self.radius * 4))
+            height = max(6, int(self.radius * 2.2))
+            shadow = pygame.Surface((width, height), pygame.SRCALPHA)
+            pygame.draw.ellipse(shadow, (0, 0, 0, 65), shadow.get_rect())
+            self._shadow_cache[key] = shadow
+        return shadow
 
     def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
         color = (255, 255, 255) if flash else self.color
@@ -457,7 +470,7 @@ class SlimeEnemy(Enemy):
 class BlackHoleMage(Enemy):
     _BASE = dict(max_hp=76, speed=54, damage=12, radius=18, color=(88, 72, 170), xp_drop=8, gold_drop=3, knockback_resist=0.1)
     _IDEAL_DIST = 250.0
-    _CAST_CD = 5.0
+    _CAST_CD = 8.2
 
     def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
         d = DIFFICULTY_SETTINGS[difficulty]
@@ -495,20 +508,22 @@ class BlackHoleMage(Enemy):
         self._cast_timer -= dt
         if self._cast_timer <= 0:
             self._cast_timer = self._CAST_CD
+            angle = rng.uniform(0.0, math.tau)
+            dist = rng.uniform(150.0, 230.0)
             self.pending_hazards.append(
                 {
                     "kind": "black_hole",
-                    "x": player.x + rng.uniform(-90, 90),
-                    "y": player.y + rng.uniform(-90, 90),
-                    "life": 4.8,
-                    "pull_radius": 220,
-                    "damage_radius": 36,
-                    "pull_strength": 220,
-                    "dps": self.damage * 1.6,
+                    "x": player.x + math.cos(angle) * dist,
+                    "y": player.y + math.sin(angle) * dist,
+                    "life": 3.2,
+                    "pull_radius": 150,
+                    "damage_radius": 28,
+                    "pull_strength": 92,
+                    "dps": self.damage * 0.85,
                     "color": (110, 90, 220),
                 }
             )
-            particles.burst(self.x, self.y, (140, 110, 255), count=10, speed=60, life=0.3, size=4)
+            particles.burst(self.x, self.y, (140, 110, 255), count=7, speed=60, life=0.3, size=4)
 
     def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
         r = self.radius * (1.0 + self._hit_burst * 0.15)
@@ -523,6 +538,184 @@ class BlackHoleMage(Enemy):
             ox = sx + math.cos(oa) * r * 1.25
             oy = sy + math.sin(oa) * r * 1.25
             shapes.circle(surface, glow, ox, oy, 3)
+
+
+class LineRaiderEnemy(Enemy):
+    _BASE = dict(max_hp=86, speed=0, damage=20, radius=18, color=(255, 85, 85), xp_drop=9, gold_drop=3, knockback_resist=0.35)
+    _TELEGRAPH_TIME = 1.0
+    _WARN_HALF_WIDTH = 34.0
+    _DASH_SPEED = 1880.0
+    _SPAWN_MARGIN = 140.0
+
+    def __init__(
+        self,
+        x: float,
+        y: float,
+        difficulty: int = 1,
+        world_bounds: tuple[float, float, float, float] | None = None,
+        target_x: float | None = None,
+        target_y: float | None = None,
+    ) -> None:
+        d = DIFFICULTY_SETTINGS[difficulty]
+        b = self._BASE
+        super().__init__(
+            x,
+            y,
+            b["max_hp"] * d["hp_mul"],
+            b["speed"],
+            b["damage"] * d["dmg_mul"],
+            b["radius"],
+            b["color"],
+            max(1, int(b["xp_drop"] * d["reward_mul"])),
+            b["gold_drop"],
+            b["knockback_resist"],
+        )
+        self.contact_damage = False
+        self.ignore_world_clamp = True
+        self._world_bounds = world_bounds or (-1800.0, -1200.0, 1800.0, 1200.0)
+        self._state = "warning"
+        self._state_timer = 0.0
+        self._warn_half_width = self._WARN_HALF_WIDTH
+        self._hit_done = False
+        self._prev_x = self.x
+        self._prev_y = self.y
+        self._phase_flash = 0.0
+        self._axis = rng.choice(("horizontal", "vertical"))
+        self._direction = rng.choice((-1, 1))
+
+        left, top, right, bottom = self._world_bounds
+        lock_x = target_x if target_x is not None else x
+        lock_y = target_y if target_y is not None else y
+        lane_jitter = rng.uniform(-24.0, 24.0)
+
+        if self._axis == "horizontal":
+            self.y = max(top + self.radius, min(bottom - self.radius, lock_y + lane_jitter))
+            self.x = left - self._SPAWN_MARGIN if self._direction > 0 else right + self._SPAWN_MARGIN
+            self._exit_pos = right + self._SPAWN_MARGIN if self._direction > 0 else left - self._SPAWN_MARGIN
+        else:
+            self.x = max(left + self.radius, min(right - self.radius, lock_x + lane_jitter))
+            self.y = top - self._SPAWN_MARGIN if self._direction > 0 else bottom + self._SPAWN_MARGIN
+            self._exit_pos = bottom + self._SPAWN_MARGIN if self._direction > 0 else top - self._SPAWN_MARGIN
+
+    def update(self, dt: float, player) -> None:
+        if not self.alive:
+            return
+
+        self.pending_spawns.clear()
+        self.pending_projectiles.clear()
+        self.pending_hazards.clear()
+        self._anim_t = (self._anim_t + dt * 6.5) % math.tau
+        self._hit_burst = max(0.0, self._hit_burst - dt * 6.0)
+        self._phase_flash = max(0.0, self._phase_flash - dt * 2.6)
+
+        decay = max(0.0, 1.0 - _KB_DECAY * dt)
+        self.kb_vx *= decay
+        self.kb_vy *= decay
+        if self._flash_timer > 0:
+            self._flash_timer = max(0.0, self._flash_timer - dt)
+
+        self._state_timer += dt
+        self._prev_x = self.x
+        self._prev_y = self.y
+
+        if self._state == "warning":
+            self.vx = 0.0
+            self.vy = 0.0
+            if self._state_timer >= self._TELEGRAPH_TIME:
+                self._state = "dash"
+                self._state_timer = 0.0
+                self._phase_flash = 1.0
+                particles.directional(self.x, self.y, self._travel_angle, 0.18, self.color, count=8, speed=90, life=0.24)
+            return
+
+        speed = self._DASH_SPEED
+        if self._axis == "horizontal":
+            self.vx = speed * self._direction + self.kb_vx
+            self.vy = self.kb_vy
+            self.x += self.vx * dt
+            self.y += self.vy * dt
+            self._check_dash_hit(player, horizontal=True)
+            if (self._direction > 0 and self.x >= self._exit_pos) or (self._direction < 0 and self.x <= self._exit_pos):
+                self.alive = False
+        else:
+            self.vx = self.kb_vx
+            self.vy = speed * self._direction + self.kb_vy
+            self.x += self.vx * dt
+            self.y += self.vy * dt
+            self._check_dash_hit(player, horizontal=False)
+            if (self._direction > 0 and self.y >= self._exit_pos) or (self._direction < 0 and self.y <= self._exit_pos):
+                self.alive = False
+
+    @property
+    def _travel_angle(self) -> float:
+        if self._axis == "horizontal":
+            return 0.0 if self._direction > 0 else math.pi
+        return math.pi / 2 if self._direction > 0 else -math.pi / 2
+
+    def _check_dash_hit(self, player, horizontal: bool) -> None:
+        if self._hit_done:
+            return
+        if horizontal:
+            if abs(player.y - self.y) > self._warn_half_width + player.radius:
+                return
+            min_pos = min(self._prev_x, self.x) - player.radius
+            max_pos = max(self._prev_x, self.x) + player.radius
+            crossed = min_pos <= player.x <= max_pos
+        else:
+            if abs(player.x - self.x) > self._warn_half_width + player.radius:
+                return
+            min_pos = min(self._prev_y, self.y) - player.radius
+            max_pos = max(self._prev_y, self.y) + player.radius
+            crossed = min_pos <= player.y <= max_pos
+        if crossed:
+            actual = player.take_damage(self.damage, self.x, self.y)
+            if actual > 0:
+                particles.burst(player.x, player.y, self.color, count=12, speed=120, life=0.28, size=4)
+            self._hit_done = True
+
+    def draw(self, surface: pygame.Surface, cam) -> None:
+        self._draw_warning(surface, cam)
+        if not cam.is_visible(self.x, self.y, self.radius + 48):
+            return
+        sx, sy = cam.world_to_screen(self.x, self.y)
+        flash = self._flash_timer > 0 or self._phase_flash > 0.4
+        self._draw_shadow(surface, sx, sy)
+        self._draw_shape(surface, sx, sy, flash)
+        self._draw_hp_bar(surface, sx, sy)
+
+    def _draw_warning(self, surface: pygame.Surface, cam) -> None:
+        left, top, right, bottom = self._world_bounds
+        pulse = 0.55 + 0.45 * math.sin(self._anim_t * 6.0)
+        alpha = 54 if self._state == "dash" else int(75 + pulse * 65)
+        line_alpha = 150 if self._state == "dash" else int(175 + pulse * 50)
+
+        if self._axis == "horizontal":
+            x1, y1 = cam.world_to_screen(left, self.y - self._warn_half_width)
+            x2, y2 = cam.world_to_screen(right, self.y + self._warn_half_width)
+        else:
+            x1, y1 = cam.world_to_screen(self.x - self._warn_half_width, top)
+            x2, y2 = cam.world_to_screen(self.x + self._warn_half_width, bottom)
+
+        rect = pygame.Rect(min(x1, x2), min(y1, y2), max(2, abs(x2 - x1)), max(2, abs(y2 - y1)))
+        if rect.right < 0 or rect.left > surface.get_width() or rect.bottom < 0 or rect.top > surface.get_height():
+            return
+        warning = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
+        warning.fill((255, 80, 80, alpha))
+        surface.blit(warning, rect.topleft)
+        pygame.draw.rect(surface, (255, 235, 235, line_alpha), rect, 3)
+
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        color = (255, 255, 255) if flash else self.color
+        glow = (255, 180, 180)
+        angle = self._travel_angle
+        head = (sx + math.cos(angle) * self.radius * 1.75, sy + math.sin(angle) * self.radius * 1.75)
+        left = (sx + math.cos(angle + 2.55) * self.radius, sy + math.sin(angle + 2.55) * self.radius)
+        right = (sx + math.cos(angle - 2.55) * self.radius, sy + math.sin(angle - 2.55) * self.radius)
+        tail = (sx - math.cos(angle) * self.radius * 1.2, sy - math.sin(angle) * self.radius * 1.2)
+        shapes.glow_circle(surface, color, sx, sy, self.radius * 0.9, layers=2, alpha_start=38)
+        shapes.polygon(surface, color, [head, left, tail, right])
+        shapes.polygon(surface, glow, [head, left, tail, right], width=2)
+        shapes.line(surface, glow, tail[0], tail[1], head[0], head[1], 2)
 
 
 class TankEnemy(Enemy):
@@ -1150,6 +1343,7 @@ _NORMAL_MAP: dict[str, type] = {
     "slime_medium": SlimeEnemy,
     "slime_small": SlimeEnemy,
     "blackhole_mage": BlackHoleMage,
+    "line_raider": LineRaiderEnemy,
     "tank": TankEnemy,
     "wizard": WizardEnemy,
     "exploder": ExploderEnemy,

@@ -270,8 +270,11 @@ class ProjectileSystem:
         self._pool: list[Projectile] = [Projectile() for _ in range(pool_size)]
         self._active: list[Projectile] = []
         self._ptr = 0
+        self._low_detail = False
 
     def spawn(self, **kwargs) -> Projectile | None:
+        if self._low_detail:
+            kwargs.setdefault("trail_max", 3)
         size = len(self._pool)
         for _ in range(size):
             proj = self._pool[self._ptr % size]
@@ -282,22 +285,47 @@ class ProjectileSystem:
                 return proj
         return None
 
-    def update(self, dt: float, enemies: list, grid) -> None:
+    def update(self, dt: float, enemies: list, grid, bounds=None) -> None:
         keep = []
+        left = top = right = bottom = None
+        if bounds is not None:
+            left, top, right, bottom = bounds
+        margin = 260.0
         for proj in self._active:
             proj.update(dt, enemies, grid)
+            if proj.alive and bounds is not None:
+                if proj.x < left - margin or proj.x > right + margin or proj.y < top - margin or proj.y > bottom + margin:
+                    proj.alive = False
             if proj.alive:
                 keep.append(proj)
         self._active = keep
 
     def draw(self, surface: pygame.Surface, cam) -> None:
         for proj in self._active:
-            proj.draw(surface, cam)
+            if self._low_detail and proj.alive:
+                sx, sy = cam.world_to_screen(proj.x, proj.y)
+                if -40 <= sx <= surface.get_width() + 40 and -40 <= sy <= surface.get_height() + 40:
+                    angle = math.atan2(proj.vy, proj.vx)
+                    if proj.shape == "dagger":
+                        _draw_dagger(surface, sx, sy, angle, proj.size, proj.color)
+                    elif proj.shape == "ice":
+                        _draw_ice(surface, sx, sy, angle, proj.size, proj.color)
+                    elif proj.shape == "missile":
+                        _draw_missile(surface, sx, sy, angle, proj.size, proj.color)
+                    elif proj.shape == "boomerang":
+                        _draw_boomerang(surface, sx, sy, angle, proj.size, proj.color)
+                    else:
+                        shapes.circle(surface, proj.color, sx, sy, int(proj.size))
+            else:
+                proj.draw(surface, cam)
 
     def clear(self) -> None:
         for proj in self._active:
             proj.alive = False
         self._active.clear()
+
+    def set_low_detail(self, enabled: bool) -> None:
+        self._low_detail = enabled
 
     @property
     def count(self) -> int:

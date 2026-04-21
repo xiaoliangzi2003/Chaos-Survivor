@@ -65,14 +65,16 @@ class BlackHole:
                 particles.sparkle(player.x, player.y, (120, 80, 210), count=2, radius=18)
         return (force_x, force_y)
 
-    def draw(self, surface: pygame.Surface, cam) -> None:
+    def draw(self, surface: pygame.Surface, cam, low_detail: bool = False) -> None:
         if not self.alive or not cam.is_visible(self.x, self.y, self.pull_radius + 16):
             return
 
         sx, sy = cam.world_to_screen(self.x, self.y)
         phase = self.age * 2.6
-        shapes.glow_circle(surface, self.color, sx, sy, self.damage_radius, layers=3, alpha_start=44)
-        for idx in range(3):
+        glow_layers = 2 if low_detail else 3
+        ring_count = 1 if low_detail else 3
+        shapes.glow_circle(surface, self.color, sx, sy, self.damage_radius, layers=glow_layers, alpha_start=44)
+        for idx in range(ring_count):
             ring_r = self.damage_radius + 10 + idx * 18 + math.sin(phase + idx) * 4
             shapes.ring(surface, self.color, sx, sy, ring_r, 2)
         shapes.circle(surface, (20, 12, 35), sx, sy, self.damage_radius * 0.95)
@@ -80,10 +82,12 @@ class BlackHole:
 
 
 class HazardSystem:
-    def __init__(self, pool_size: int = 64) -> None:
+    def __init__(self, pool_size: int = 64, max_total_pull: float = 185.0) -> None:
         self._pool = [BlackHole() for _ in range(pool_size)]
         self._active: list[BlackHole] = []
         self._ptr = 0
+        self._max_total_pull = max_total_pull
+        self._low_detail = False
 
     def spawn_black_hole(self, **kwargs):
         size = len(self._pool)
@@ -107,16 +111,24 @@ class HazardSystem:
             if hazard.alive:
                 keep.append(hazard)
         self._active = keep
+        total_force = math.hypot(total_x, total_y)
+        if total_force > self._max_total_pull > 0:
+            scale = self._max_total_pull / total_force
+            total_x *= scale
+            total_y *= scale
         return (total_x, total_y)
 
     def draw(self, surface: pygame.Surface, cam) -> None:
         for hazard in self._active:
-            hazard.draw(surface, cam)
+            hazard.draw(surface, cam, self._low_detail)
 
     def clear(self) -> None:
         for hazard in self._active:
             hazard.alive = False
         self._active.clear()
+
+    def set_low_detail(self, enabled: bool) -> None:
+        self._low_detail = enabled
 
     @property
     def count(self) -> int:

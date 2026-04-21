@@ -90,8 +90,11 @@ class EnemyBulletSystem:
         self._pool = [EnemyBullet() for _ in range(pool_size)]
         self._active: list[EnemyBullet] = []
         self._ptr = 0
+        self._low_detail = False
 
     def spawn(self, **kwargs) -> EnemyBullet | None:
+        if self._low_detail:
+            kwargs.setdefault("trail", 3)
         size = len(self._pool)
         for _ in range(size):
             bullet = self._pool[self._ptr % size]
@@ -102,22 +105,42 @@ class EnemyBulletSystem:
                 return bullet
         return None
 
-    def update(self, dt: float, player) -> None:
+    def update(self, dt: float, player, bounds=None) -> None:
         keep = []
+        left = top = right = bottom = None
+        if bounds is not None:
+            left, top, right, bottom = bounds
+        margin = 260.0
         for bullet in self._active:
             bullet.update(dt, player)
+            if bullet.alive and bounds is not None:
+                if bullet.x < left - margin or bullet.x > right + margin or bullet.y < top - margin or bullet.y > bottom + margin:
+                    bullet.alive = False
             if bullet.alive:
                 keep.append(bullet)
         self._active = keep
 
     def draw(self, surface: pygame.Surface, cam) -> None:
         for bullet in self._active:
-            bullet.draw(surface, cam)
+            if self._low_detail and bullet.alive and cam.is_visible(bullet.x, bullet.y, bullet.radius + 12):
+                sx, sy = cam.world_to_screen(bullet.x, bullet.y)
+                angle = math.atan2(bullet.vy, bullet.vx)
+                if bullet.shape == "spike":
+                    _draw_spike(surface, sx, sy, angle, bullet.radius, bullet.color)
+                elif bullet.shape == "bolt":
+                    _draw_bolt(surface, sx, sy, angle, bullet.radius, bullet.color)
+                else:
+                    shapes.circle(surface, bullet.color, sx, sy, bullet.radius)
+            else:
+                bullet.draw(surface, cam)
 
     def clear(self) -> None:
         for bullet in self._active:
             bullet.alive = False
         self._active.clear()
+
+    def set_low_detail(self, enabled: bool) -> None:
+        self._low_detail = enabled
 
     @property
     def count(self) -> int:
