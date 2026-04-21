@@ -1,4 +1,4 @@
-"""战斗场景，负责边界、波次、危险区与战斗反馈。"""
+"""战斗场景，负责边界、波次、首领战与战斗反馈。"""
 
 from __future__ import annotations
 
@@ -8,7 +8,6 @@ import pygame
 
 from src.core.camera import camera
 from src.core.config import (
-    BOSS_WAVES,
     COLOR_HP_BAR,
     COLOR_HP_BG,
     COLOR_XP_BAR,
@@ -25,7 +24,7 @@ from src.core.config import (
 )
 from src.core.rng import rng
 from src.core.scene import Scene
-from src.entities.enemy import ALL_ELITE_TYPES, create_enemy
+from src.entities.enemy import create_enemy
 from src.entities.player import Player
 from src.entities.projectile import ProjectileSystem
 from src.render import shapes
@@ -43,6 +42,20 @@ from src.ui.fonts import get_font
 from src.weapons import STARTING_WEAPON_IDS, create_weapon
 
 _THEME_NAMES = list(MAP_THEMES.keys())
+_BOSS_NAMES = {
+    "storm_tyrant": "猩红风暴主宰",
+    "void_colossus": "虚空巨像",
+    "elite_summoner": "裂群召魂者",
+    "elite_berserker": "狂怒战躯",
+    "elite_assassin": "影刃追猎者",
+    "elite_sentinel": "棱镜炮台",
+}
+_BOSS_ATTACK_LABELS = {
+    "elite_summoner": "召唤压制",
+    "elite_berserker": "狂暴冲锋",
+    "elite_assassin": "瞬影追猎",
+    "elite_sentinel": "棱镜轰击",
+}
 
 
 class BattleScene(Scene):
@@ -86,30 +99,8 @@ class BattleScene(Scene):
         camera.update(0, 0, 0, bounds=self._bounds)
 
     def handle_event(self, event: pygame.event.Event) -> None:
-        if event.type != pygame.KEYDOWN:
-            return
-
-        key = event.key
-        if key in (pygame.K_ESCAPE, pygame.K_p):
+        if event.type == pygame.KEYDOWN and event.key in (pygame.K_ESCAPE, pygame.K_p):
             self.game.push_scene("pause")
-        elif key == pygame.K_f:
-            self._player.take_damage(15, source_x=self._player.x + 100, source_y=self._player.y)
-        elif key == pygame.K_h:
-            healed = self._player.heal(20)
-            damage_numbers.add(self._player.x, self._player.y - 20, healed, is_heal=True)
-        elif key == pygame.K_x:
-            self._player.gain_xp(self._player.xp_to_next * 0.6)
-        elif key == pygame.K_g:
-            self._pickups.spawn_rewards(self._player.x, self._player.y, 0, 50)
-        elif key == pygame.K_k:
-            self._player.take_damage(9999)
-        elif key == pygame.K_t:
-            self._map = MapRenderer(rng.choice(_THEME_NAMES), seed=rng.seed())
-            self._bounds = self._map.world_bounds
-        elif key == pygame.K_e:
-            self._spawn_one(rng.choice(ALL_ELITE_TYPES), dist=220)
-        elif key == pygame.K_BACKQUOTE:
-            self._clear_wave_with_drops()
 
     def update(self, dt: float) -> None:
         if self._hitstop_timer > 0:
@@ -166,7 +157,7 @@ class BattleScene(Scene):
             self._draw_death_overlay(surface)
 
     def _update_wave(self, dt: float) -> None:
-        step = self._wave_system.update(dt, len(self._enemies))
+        step = self._wave_system.update(dt, len(self._enemies), boss_alive=self._active_boss() is not None)
         if step.entered_break:
             self._clear_wave_with_drops()
             self._open_shop()
@@ -176,11 +167,18 @@ class BattleScene(Scene):
             self._spawn_one(spec)
 
     def _spawn_one(self, enemy_spec, dist: float | None = None) -> None:
+        boss_rank = None
         if isinstance(enemy_spec, dict):
             etype = enemy_spec["etype"]
-            ex = enemy_spec["x"]
-            ey = enemy_spec["y"]
-            kwargs = {key: value for key, value in enemy_spec.items() if key not in {"etype", "x", "y"}}
+            ex = enemy_spec["x"] if "x" in enemy_spec else 0.0
+            ey = enemy_spec["y"] if "y" in enemy_spec else 0.0
+            if "x" not in enemy_spec or "y" not in enemy_spec:
+                angle = rng.uniform(0, math.tau)
+                distance = dist or rng.uniform(520, 720)
+                ex = self._player.x + math.cos(angle) * distance
+                ey = self._player.y + math.sin(angle) * distance
+            kwargs = {key: value for key, value in enemy_spec.items() if key not in {"etype", "x", "y", "boss_rank"}}
+            boss_rank = enemy_spec.get("boss_rank")
         else:
             etype = enemy_spec
             angle = rng.uniform(0, math.tau)
@@ -189,13 +187,30 @@ class BattleScene(Scene):
             ey = self._player.y + math.sin(angle) * distance
             kwargs = {}
 
-        ex, ey = self._clamp_position(ex, ey, 18)
-        enemy = create_enemy(etype, ex, ey, self.difficulty, **kwargs)
+        enemy = create_enemy(etype, *self._clamp_position(ex, ey, 18), self.difficulty, **kwargs)
+        if boss_rank is not None:
+            self._configure_boss(enemy, etype, boss_rank)
         self._enemies.append(enemy)
-        if getattr(enemy, "is_boss", False):
+
+        if enemy.is_boss:
             self._boss_intro_timer = 2.2
             camera.shake(SCREENSHAKE_BOSS_ENTER, 7.0)
             particles.burst(enemy.x, enemy.y, enemy.color, count=24, speed=100, life=0.5, size=6)
+
+    def _configure_boss(self, enemy, etype: str, boss_rank: int) -> None:
+        enemy.is_boss = True
+        enemy.boss_name = _BOSS_NAMES.get(etype, enemy.boss_name or "首领")
+        if not enemy.attack_label:
+            enemy.attack_label = _BOSS_ATTACK_LABELS.get(etype, "首领压制")
+
+        scale = 1.0 + 0.18 * max(0, boss_rank - 1)
+        enemy.max_hp *= scale
+        enemy.hp = enemy.max_hp
+        enemy.damage *= 1.0 + 0.14 * max(0, boss_rank - 1)
+        enemy.speed *= 1.0 + 0.05 * max(0, boss_rank - 1)
+        enemy.radius *= 1.0 + 0.04 * max(0, boss_rank - 1)
+        enemy.xp_drop = int(enemy.xp_drop * scale)
+        enemy.gold_drop = int(enemy.gold_drop * (1.0 + 0.12 * max(0, boss_rank - 1)))
 
     def _update_enemies(self, dt: float) -> None:
         for enemy in self._enemies:
@@ -238,9 +253,12 @@ class BattleScene(Scene):
             if enemy.alive:
                 keep.append(enemy)
                 continue
+            for spawn in getattr(enemy, "pending_spawns", []):
+                if len(keep) + len(self._enemies) < MAX_ENEMIES:
+                    self._spawn_one(spawn)
             self._player.kills += 1
             self._pickups.spawn_rewards(enemy.x, enemy.y, enemy.xp_drop, enemy.gold_drop)
-        self._enemies = keep
+        self._enemies = [enemy for enemy in self._enemies if enemy.alive]
 
     def _clear_wave_with_drops(self) -> None:
         for enemy in self._enemies:
@@ -370,13 +388,13 @@ class BattleScene(Scene):
         wave_label = f"第 {self._wave_system.current_wave} 波"
         if self._wave_system.is_break:
             wave_label += " - 商店阶段"
-        elif self._wave_system.current_wave in BOSS_WAVES and self._active_boss() is not None:
+        elif self._wave_system.is_boss_wave and self._active_boss() is not None:
             wave_label += " - 首领战"
         elif self._wave_system.cleanup_mode:
             wave_label += " - 清场中"
         surface.blit(self._font_medium.render(wave_label, True, (255, 220, 120)), (14, 132))
 
-        if self._wave_system.current_wave in BOSS_WAVES and self._active_boss() is not None:
+        if self._wave_system.is_boss_wave and self._active_boss() is not None:
             time_text = "目标：击败首领"
         else:
             time_text = f"剩余时间 {self._wave_system.time_left:04.1f} 秒"
@@ -392,10 +410,7 @@ class BattleScene(Scene):
 
         for idx, weapon in enumerate(self._player.weapons):
             text = self._font_small.render(f"{weapon.NAME}  {weapon.level}级", True, (210, 210, 220))
-            surface.blit(text, (14, SCREEN_HEIGHT - 130 + idx * 20))
-
-        debug = self._font_small.render("F 受伤  H 治疗  X 经验  G 金币  K 死亡  T 地图  E 精英  ` 清场", True, (95, 95, 110))
-        surface.blit(debug, debug.get_rect(centerx=SCREEN_WIDTH // 2, y=SCREEN_HEIGHT - 26))
+            surface.blit(text, (14, SCREEN_HEIGHT - 110 + idx * 20))
 
         if self._show_victory:
             text = self._font_large.render("胜利", True, (255, 225, 120))

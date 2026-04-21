@@ -869,6 +869,146 @@ class StormTyrantBoss(Enemy):
             shapes.circle(surface, glow, ox, oy, 4)
 
 
+class VoidColossusBoss(Enemy):
+    _BASE = dict(max_hp=1850, speed=62, damage=24, radius=44, color=(90, 120, 255), xp_drop=110, gold_drop=34, knockback_resist=0.92)
+    _STATE_ORDER = ("重压震荡", "虚空喷射", "引力坍塌")
+    _STATE_DURATIONS = {"重压震荡": 4.5, "虚空喷射": 4.2, "引力坍塌": 4.8}
+
+    def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
+        d = DIFFICULTY_SETTINGS[difficulty]
+        b = self._BASE
+        super().__init__(
+            x,
+            y,
+            b["max_hp"] * d["hp_mul"],
+            b["speed"],
+            b["damage"] * d["dmg_mul"],
+            b["radius"],
+            b["color"],
+            max(1, int(b["xp_drop"] * d["reward_mul"])),
+            int(b["gold_drop"] * d["reward_mul"]),
+            b["knockback_resist"],
+        )
+        self.is_boss = True
+        self.boss_name = "虚空巨像"
+        self.attack_label = self._STATE_ORDER[0]
+        self._state_index = 0
+        self._state_timer = 0.0
+        self._shot_timer = 0.0
+        self._summon_timer = 3.2
+
+    def update(self, dt: float, player) -> None:
+        if self.hp / self.max_hp < 0.5:
+            self.speed = 78
+        super().update(dt, player)
+
+    def _ai(self, dt: float, player) -> None:
+        self._state_timer += dt
+        state = self._STATE_ORDER[self._state_index]
+        self.attack_label = state
+        if self._state_timer >= self._STATE_DURATIONS[state]:
+            self._state_index = (self._state_index + 1) % len(self._STATE_ORDER)
+            self._state_timer = 0.0
+            self._shot_timer = 0.0
+            particles.burst(self.x, self.y, self.color, count=16, speed=75, life=0.35, size=5)
+            state = self._STATE_ORDER[self._state_index]
+            self.attack_label = state
+
+        if state == "重压震荡":
+            self._state_barrage(dt, player)
+        elif state == "虚空喷射":
+            self._state_beam(dt, player)
+        else:
+            self._state_gravity(dt, player)
+        self._handle_summons(dt)
+
+    def _state_barrage(self, dt: float, player) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        self.vx = dx / dist * self.speed * 0.45
+        self.vy = dy / dist * self.speed * 0.45
+
+        self._shot_timer -= dt
+        if self._shot_timer <= 0:
+            self._shot_timer = 0.85
+            self._shoot_ring(210, self.damage * 0.55, (130, 165, 255), count=10, shape="orb", radius=8, life=4.0)
+            particles.burst(self.x, self.y, (130, 165, 255), count=12, speed=60, life=0.28, size=4)
+
+    def _state_beam(self, dt: float, player) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        orbit = math.atan2(dy, dx) + math.pi / 2
+        self.vx = math.cos(orbit) * self.speed * 0.6
+        self.vy = math.sin(orbit) * self.speed * 0.6
+
+        self._shot_timer -= dt
+        if self._shot_timer <= 0:
+            self._shot_timer = 0.48
+            self._shoot_at_player(player, 330, self.damage * 0.85, (180, 210, 255), spread=0.22, count=3, shape="bolt", radius=8, life=4.6)
+            particles.directional(self.x, self.y, math.atan2(dy, dx), 0.3, (180, 210, 255), count=8, speed=70, life=0.18)
+
+    def _state_gravity(self, dt: float, player) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        self.vx = -dx / dist * self.speed * 0.25
+        self.vy = -dy / dist * self.speed * 0.25
+
+        self._shot_timer -= dt
+        if self._shot_timer <= 0:
+            self._shot_timer = 1.25
+            self.pending_hazards.append(
+                {
+                    "kind": "black_hole",
+                    "x": player.x + rng.uniform(-70, 70),
+                    "y": player.y + rng.uniform(-70, 70),
+                    "life": 4.2,
+                    "pull_radius": 240,
+                    "damage_radius": 44,
+                    "pull_strength": 260,
+                    "dps": self.damage * 1.8,
+                    "color": (105, 130, 255),
+                }
+            )
+            self._shoot_at_player(player, 270, self.damage * 0.5, (120, 145, 255), spread=0.65, count=5, shape="orb", radius=7, life=3.8)
+
+    def _handle_summons(self, dt: float) -> None:
+        self._summon_timer -= dt
+        if self._summon_timer > 0:
+            return
+        self._summon_timer = 7.0
+        minions = ("slime_large", "blackhole_mage")
+        for idx, etype in enumerate(minions):
+            angle = self._anim_t + math.tau * idx / len(minions)
+            self.pending_spawns.append(
+                {
+                    "etype": etype,
+                    "x": self.x + math.cos(angle) * 135,
+                    "y": self.y + math.sin(angle) * 135,
+                    "color": self.color if "slime" in etype else None,
+                }
+            )
+        particles.burst(self.x, self.y, (160, 190, 255), count=14, speed=85, life=0.35, size=4)
+
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        r = self.radius * (1.0 + math.sin(self._anim_t) * 0.04 + self._hit_burst * 0.12)
+        color = (255, 255, 255) if flash else self.color
+        glow = (175, 200, 255)
+        angle = self._anim_t * 0.35
+        shapes.glow_circle(surface, color, sx, sy, r * 1.15, layers=4, alpha_start=42)
+        shapes.regular_polygon(surface, color, sx, sy, r, 12, angle)
+        shapes.regular_polygon(surface, (20, 35, 90), sx, sy, r, 12, angle, width=3)
+        shapes.regular_polygon(surface, glow, sx, sy, r * 0.68, 6, -angle)
+        shapes.circle(surface, (235, 245, 255), sx, sy, r * 0.18)
+        for idx in range(6):
+            oa = angle + math.tau * idx / 6
+            ox = sx + math.cos(oa) * r * 1.05
+            oy = sy + math.sin(oa) * r * 1.05
+            shapes.circle(surface, glow, ox, oy, 3)
+
+
 class EliteSummoner(ZombieEnemy):
     _SUMMON_CD = 5.0
     _SUMMON_COUNT = 3
@@ -1016,6 +1156,7 @@ _NORMAL_MAP: dict[str, type] = {
     "gunner": GunnerEnemy,
     "artillery": ArtilleryEnemy,
     "storm_tyrant": StormTyrantBoss,
+    "void_colossus": VoidColossusBoss,
 }
 
 _ELITE_MAP: dict[str, type] = {

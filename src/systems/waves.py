@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from src.core.config import (
-    BOSS_WAVES,
+    BOSS_WAVE_INTERVAL,
     DIFFICULTY_SETTINGS,
     ELITE_WAVE_INTERVAL,
     TOTAL_WAVES,
@@ -15,12 +15,14 @@ from src.core.config import (
 )
 from src.core.rng import rng
 
-_BOSS_ROTATION = {
-    5: "storm_tyrant",
-    10: "elite_summoner",
-    15: "elite_sentinel",
-    20: "elite_assassin",
-}
+BOSS_POOL: tuple[str, ...] = (
+    "storm_tyrant",
+    "void_colossus",
+    "elite_summoner",
+    "elite_berserker",
+    "elite_assassin",
+    "elite_sentinel",
+)
 
 
 @dataclass(slots=True)
@@ -31,7 +33,7 @@ class WaveBanner:
 
 @dataclass(slots=True)
 class WaveStep:
-    spawns: list[str] = field(default_factory=list)
+    spawns: list[dict | str] = field(default_factory=list)
     entered_break: bool = False
     started_wave: bool = False
     victory_ready: bool = False
@@ -47,9 +49,36 @@ class WaveSystem:
         self.cleanup_mode = False
         self.finished = False
         self.banner = WaveBanner("第 1 波开始")
-        self._boss_spawned = False
 
-    def update(self, dt: float, alive_count: int) -> WaveStep:
+        self._boss_spawned = False
+        self._current_boss_type: str | None = None
+        self._used_bosses: set[str] = set()
+
+    @property
+    def is_break(self) -> bool:
+        return self.state == "break"
+
+    @property
+    def is_boss_wave(self) -> bool:
+        return self.current_wave % BOSS_WAVE_INTERVAL == 0
+
+    @property
+    def boss_rank(self) -> int:
+        return max(1, self.current_wave // BOSS_WAVE_INTERVAL)
+
+    @property
+    def wave_duration(self) -> float:
+        return min(60.0, WAVE_BASE_DURATION + WAVE_DURATION_INC * (self.current_wave - 1))
+
+    @property
+    def time_left(self) -> float:
+        if self.state == "break":
+            return max(0.0, WAVE_BREAK_DURATION - self.time_in_state)
+        if self.cleanup_mode or self.is_boss_wave:
+            return 0.0
+        return max(0.0, self.wave_duration - self.time_in_state)
+
+    def update(self, dt: float, alive_count: int, boss_alive: bool = False) -> WaveStep:
         step = WaveStep()
         if self.finished:
             return step
@@ -71,11 +100,14 @@ class WaveSystem:
                 step.victory_ready = True
             return step
 
-        if self.current_wave in BOSS_WAVES:
-            step.spawns = self._boss_wave_spawns()
-            if self._boss_spawned and alive_count == 0:
+        if self.is_boss_wave:
+            if not self._boss_spawned:
+                step.spawns = self._boss_wave_spawns()
+                return step
+            if self._boss_spawned and not boss_alive:
                 if self.current_wave >= TOTAL_WAVES:
                     self.cleanup_mode = True
+                    self.banner = WaveBanner("清理残余敌人")
                 else:
                     self.state = "break"
                     self.time_in_state = 0.0
@@ -97,40 +129,37 @@ class WaveSystem:
                 step.entered_break = True
         return step
 
-    @property
-    def wave_duration(self) -> float:
-        return WAVE_BASE_DURATION + WAVE_DURATION_INC * (self.current_wave - 1)
-
-    @property
-    def is_break(self) -> bool:
-        return self.state == "break"
-
-    @property
-    def time_left(self) -> float:
-        if self.state == "break":
-            return max(0.0, WAVE_BREAK_DURATION - self.time_in_state)
-        if self.cleanup_mode or self.current_wave in BOSS_WAVES:
-            return 0.0
-        return max(0.0, self.wave_duration - self.time_in_state)
-
     def _start_next_wave(self) -> None:
         self.current_wave += 1
         self.state = "wave"
         self.time_in_state = 0.0
         self.spawn_timer = 0.0
         self._boss_spawned = False
+        self._current_boss_type = None
+
         title = f"第 {self.current_wave} 波开始"
-        if self.current_wave in BOSS_WAVES:
+        if self.is_boss_wave:
             title += "  首领来袭"
         elif self.current_wave % ELITE_WAVE_INTERVAL == 0:
             title += "  精英波"
         self.banner = WaveBanner(title)
 
-    def _boss_wave_spawns(self) -> list[str]:
+    def _boss_wave_spawns(self) -> list[dict]:
         if self._boss_spawned:
             return []
         self._boss_spawned = True
-        return [_BOSS_ROTATION[self.current_wave]]
+        boss_type = self._pick_boss_type()
+        self._current_boss_type = boss_type
+        return [{"etype": boss_type, "boss_rank": self.boss_rank}]
+
+    def _pick_boss_type(self) -> str:
+        available = [boss for boss in BOSS_POOL if boss not in self._used_bosses]
+        if not available:
+            self._used_bosses.clear()
+            available = list(BOSS_POOL)
+        boss_type = rng.choice(available)
+        self._used_bosses.add(boss_type)
+        return boss_type
 
     def _normal_wave_spawns(self, dt: float, alive_count: int) -> list[str]:
         cap = int(34 + self.current_wave * 10 * DIFFICULTY_SETTINGS[self.difficulty]["count_mul"])
