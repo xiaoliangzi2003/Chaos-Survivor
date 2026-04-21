@@ -19,6 +19,26 @@ _ELITE_RAD = 1.35
 _KB_DECAY = 9.0
 
 
+def _angle_diff(target: float, current: float) -> float:
+    diff = target - current
+    while diff > math.pi:
+        diff -= math.tau
+    while diff < -math.pi:
+        diff += math.tau
+    return diff
+
+
+def _turn_towards(current: float, target: float, max_step: float) -> float:
+    diff = _angle_diff(target, current)
+    if abs(diff) <= max_step:
+        return target
+    return current + max_step * (1 if diff > 0 else -1)
+
+
+def _blend_angles(source: float, target: float, ratio: float) -> float:
+    return source + _angle_diff(target, source) * max(0.0, min(1.0, ratio))
+
+
 class Enemy(Entity):
     HIT_FLASH = 0.08
     _shadow_cache: dict[int, pygame.Surface] = {}
@@ -50,6 +70,7 @@ class Enemy(Entity):
         self.attack_label = ""
         self.contact_damage = True
         self.ignore_world_clamp = False
+        self.invulnerable = False
         self.damage_taken_mul = 1.0
         self.shielded = False
 
@@ -68,6 +89,8 @@ class Enemy(Entity):
         self.pending_hazards: list[dict] = []
 
     def take_damage(self, amount: float, angle: float = 0.0, kb_force: float = 150.0) -> bool:
+        if self.invulnerable:
+            return False
         amount *= self.damage_taken_mul
         self.hp -= amount
         self._flash_timer = self.HIT_FLASH
@@ -579,6 +602,7 @@ class LineRaiderEnemy(Enemy):
         )
         self.contact_damage = False
         self.ignore_world_clamp = True
+        self.invulnerable = True
         self._world_bounds = world_bounds or (-1800.0, -1200.0, 1800.0, 1200.0)
         self._state = "warning"
         self._state_timer = 0.0
@@ -1097,6 +1121,392 @@ class ArtilleryEnemy(Enemy):
             shapes.circle(surface, glow, ox, oy, 2.5)
 
 
+class GeometricDevourerBoss(Enemy):
+    _BASE = dict(max_hp=2450, speed=132, damage=26, radius=32, color=(255, 125, 85), xp_drop=135, gold_drop=40, knockback_resist=0.94)
+    _CRUISE_DURATION = 5.4
+    _ASSAULT_DURATION = 2.7
+    _PORTAL_HIDE_TIME = 0.55
+    _PORTAL_EXIT_TIME = 0.48
+    _PORTAL_COOLDOWN = 8.5
+    _CRUISE_TURN = 2.0
+    _ASSAULT_TURN = 3.25
+    _SEGMENT_SPACING = 28.0
+    _SEGMENT_COUNT = 8
+    _SEGMENT_FIRE_CD = 1.05
+    _GODFIRE_CD = 4.1
+
+    def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
+        d = DIFFICULTY_SETTINGS[difficulty]
+        b = self._BASE
+        super().__init__(
+            x,
+            y,
+            b["max_hp"] * d["hp_mul"],
+            b["speed"],
+            b["damage"] * d["dmg_mul"],
+            b["radius"],
+            b["color"],
+            max(1, int(b["xp_drop"] * d["reward_mul"])),
+            int(b["gold_drop"] * d["reward_mul"]),
+            b["knockback_resist"],
+        )
+        self.is_boss = True
+        self.boss_name = "\u51e0\u4f55\u541e\u566c\u8005"
+        self.attack_label = "\u5de1\u822a\u5f39\u5e55"
+        self.contact_damage = False
+
+        self._facing = 0.0
+        self._state = "cruise"
+        self._mode_timer = self._CRUISE_DURATION
+        self._phase_two = False
+        self._segment_fire_timer = self._SEGMENT_FIRE_CD * 0.75
+        self._godfire_timer = self._GODFIRE_CD * 1.1
+        self._portal_cd = self._PORTAL_COOLDOWN
+        self._portal_stage = ""
+        self._portal_timer = 0.0
+        self._portal_entry: tuple[float, float] | None = None
+        self._portal_exit: tuple[float, float] | None = None
+        self._dash_dir = 0.0
+        self._turn_echo = 0.0
+        self._player_angle = 0.0
+        self._last_player_angle = 0.0
+        self._segments: list[tuple[float, float]] = []
+        self._segment_cache: list[tuple[float, float, float]] = []
+        self._reset_segments()
+
+    def update(self, dt: float, player) -> None:
+        move_angle = player._facing
+        if math.hypot(player.vx, player.vy) > 25:
+            move_angle = math.atan2(player.vy, player.vx)
+        if abs(_angle_diff(move_angle, self._last_player_angle)) > 0.55:
+            self._turn_echo = 0.45
+        self._last_player_angle = move_angle
+        self._player_angle = move_angle
+
+        if not self._phase_two and self.hp / self.max_hp <= 0.5:
+            self._phase_two = True
+            self._portal_cd = 3.2
+            self._godfire_timer = 1.2
+            particles.burst(self.x, self.y, (255, 180, 120), count=22, speed=95, life=0.45, size=5)
+
+        super().update(dt, player)
+        self._turn_echo = max(0.0, self._turn_echo - dt)
+        if self._state == "portal":
+            self._collapse_segments(dt)
+        else:
+            self._update_segments(dt)
+
+    def _ai(self, dt: float, player) -> None:
+        self._mode_timer -= dt
+        self.vx = 0.0
+        self.vy = 0.0
+
+        if self._phase_two and self._state != "portal":
+            self._portal_cd -= dt
+            if self._portal_cd <= 0:
+                self._begin_portal()
+
+        if self._state == "portal":
+            self.attack_label = "\u4f20\u9001\u95e8\u7a81\u523a"
+            self._portal_logic(dt, player)
+            return
+
+        self.invulnerable = False
+        if self._state == "cruise":
+            self.attack_label = "\u5de1\u822a\u5f39\u5e55"
+            self.contact_damage = False
+            self._state_cruise(dt, player)
+            if self._mode_timer <= 0:
+                self._start_assault(player)
+        else:
+            self.attack_label = "\u7a81\u51fb\u51b2\u950b"
+            self.contact_damage = True
+            self._state_assault(dt, player)
+            if self._mode_timer <= 0:
+                self._start_cruise()
+
+        if self._state == "cruise":
+            self._segment_fire_timer -= dt
+            if self._segment_fire_timer <= 0:
+                self._segment_fire_timer = 0.82 if self._phase_two else self._SEGMENT_FIRE_CD
+                self._fire_segment_barrage(player)
+
+        if self._phase_two:
+            self._godfire_timer -= dt
+            if self._godfire_timer <= 0:
+                self._godfire_timer = 3.2 if self._state == "assault" else self._GODFIRE_CD
+                self._fire_godfire(player)
+
+    def _state_cruise(self, dt: float, player) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        desired = math.atan2(dy, dx)
+        desired = _blend_angles(desired, self._player_angle, 0.22)
+        turn_speed = self._CRUISE_TURN + self._turn_echo * 1.4
+        self._facing = _turn_towards(self._facing, desired, turn_speed * dt)
+        speed = self.speed + min(100.0, dist * 0.11)
+        if dist < 165:
+            speed *= 0.78
+        self.vx = math.cos(self._facing) * speed
+        self.vy = math.sin(self._facing) * speed
+
+    def _state_assault(self, dt: float, player) -> None:
+        desired = math.atan2(player.y - self.y, player.x - self.x)
+        desired = _blend_angles(desired, self._player_angle, 0.14)
+        self._dash_dir = _turn_towards(self._dash_dir, desired, self._ASSAULT_TURN * dt)
+        self._facing = _turn_towards(self._facing, self._dash_dir, (self._ASSAULT_TURN + 0.9) * dt)
+        speed = 420.0 if not self._phase_two else 495.0
+        if self._mode_timer > self._ASSAULT_DURATION - 0.22:
+            speed *= 0.72
+        self.vx = math.cos(self._dash_dir) * speed
+        self.vy = math.sin(self._dash_dir) * speed
+        if rng.chance(dt * 10):
+            particles.directional(self.x, self.y, self._dash_dir + math.pi, 0.45, (255, 165, 120), count=4, speed=60, life=0.18, size=3)
+
+    def _start_cruise(self) -> None:
+        self._state = "cruise"
+        self._mode_timer = self._CRUISE_DURATION
+        self.contact_damage = False
+        particles.burst(self.x, self.y, self.color, count=10, speed=55, life=0.24, size=3)
+
+    def _start_assault(self, player) -> None:
+        self._state = "assault"
+        self._mode_timer = self._ASSAULT_DURATION
+        self._dash_dir = math.atan2(player.y - self.y, player.x - self.x)
+        self.contact_damage = True
+        particles.directional(self.x, self.y, self._dash_dir, 0.4, (255, 165, 110), count=10, speed=85, life=0.22, size=4)
+
+    def _begin_portal(self) -> None:
+        self._state = "portal"
+        self._mode_timer = self._PORTAL_HIDE_TIME
+        self._portal_stage = "entry"
+        self._portal_timer = self._PORTAL_HIDE_TIME
+        self._portal_entry = (self.x, self.y)
+        self._portal_exit = None
+        self.contact_damage = False
+        self.invulnerable = True
+        self.vx = 0.0
+        self.vy = 0.0
+        particles.burst(self.x, self.y, (255, 145, 95), count=12, speed=70, life=0.32, size=4)
+
+    def _portal_logic(self, dt: float, player) -> None:
+        self.vx = 0.0
+        self.vy = 0.0
+        self.kb_vx = 0.0
+        self.kb_vy = 0.0
+        self._portal_timer -= dt
+        if self._portal_stage == "entry" and self._portal_timer <= 0:
+            self._portal_stage = "exit"
+            self._portal_timer = self._PORTAL_EXIT_TIME
+            self._portal_exit = self._pick_portal_exit(player)
+            self.x, self.y = self._portal_exit
+            self._dash_dir = math.atan2(player.y - self.y, player.x - self.x)
+            self._facing = self._dash_dir
+            self._reset_segments()
+            particles.burst(self.x, self.y, (255, 205, 135), count=14, speed=82, life=0.34, size=4)
+            return
+        if self._portal_stage == "exit" and self._portal_timer <= 0:
+            self._portal_cd = self._PORTAL_COOLDOWN
+            self._portal_stage = ""
+            self.invulnerable = False
+            self._start_assault(player)
+
+    def _pick_portal_exit(self, player) -> tuple[float, float]:
+        angle = rng.uniform(0.0, math.tau)
+        dist = rng.uniform(210.0, 320.0)
+        return player.x + math.cos(angle) * dist, player.y + math.sin(angle) * dist
+
+    def _reset_segments(self) -> None:
+        self._segments = []
+        for idx in range(self._SEGMENT_COUNT):
+            dist = (idx + 1) * self._SEGMENT_SPACING
+            self._segments.append(
+                (
+                    self.x - math.cos(self._facing) * dist,
+                    self.y - math.sin(self._facing) * dist,
+                )
+            )
+
+    def _update_segments(self, dt: float) -> None:
+        updated: list[tuple[float, float]] = []
+        prev_x, prev_y = self.x, self.y
+        for idx, (sx, sy) in enumerate(self._segments):
+            dx = prev_x - sx
+            dy = prev_y - sy
+            dist = math.hypot(dx, dy)
+            if dist <= 0.001:
+                tx = prev_x - math.cos(self._facing) * self._SEGMENT_SPACING
+                ty = prev_y - math.sin(self._facing) * self._SEGMENT_SPACING
+            else:
+                tx = prev_x - dx / dist * self._SEGMENT_SPACING
+                ty = prev_y - dy / dist * self._SEGMENT_SPACING
+            follow = min(1.0, dt * (12.0 - min(idx, 8) * 0.55))
+            sx += (tx - sx) * follow
+            sy += (ty - sy) * follow
+            updated.append((sx, sy))
+            prev_x, prev_y = sx, sy
+        self._segments = updated
+
+    def _collapse_segments(self, dt: float) -> None:
+        updated: list[tuple[float, float]] = []
+        anchor_x, anchor_y = self.x, self.y
+        for idx, (sx, sy) in enumerate(self._segments):
+            pull = min(1.0, dt * (7.5 + idx * 0.5))
+            sx += (anchor_x - sx) * pull
+            sy += (anchor_y - sy) * pull
+            updated.append((sx, sy))
+        self._segments = updated
+
+    def _fire_segment_barrage(self, player) -> None:
+        segment_step = 1 if self._phase_two else 2
+        for idx, (sx, sy) in enumerate(self._segments):
+            if idx % segment_step != 0:
+                continue
+            angle = math.atan2(player.y - sy, player.x - sx)
+            angle += (idx - len(self._segments) / 2) * 0.035
+            speed = 270 + idx * 10 + (20 if self._phase_two else 0)
+            self.pending_projectiles.append(
+                {
+                    "x": sx,
+                    "y": sy,
+                    "vx": math.cos(angle) * speed,
+                    "vy": math.sin(angle) * speed,
+                    "damage": self.damage * 0.5,
+                    "life": 4.2,
+                    "radius": 6.5,
+                    "color": (255, 175, 115),
+                    "shape": "bolt",
+                    "trail": 4,
+                    "burst_count": 7,
+                }
+            )
+        particles.sparkle(self.x, self.y, (255, 185, 135), count=7, radius=self.radius + 22)
+
+    def _fire_godfire(self, player) -> None:
+        angle = math.atan2(player.y - self.y, player.x - self.x)
+        if self._state == "assault":
+            angle = self._dash_dir
+        color = (255, 120, 70)
+        self.pending_projectiles.append(
+            {
+                "x": self.x + math.cos(angle) * self.radius * 1.25,
+                "y": self.y + math.sin(angle) * self.radius * 1.25,
+                "vx": math.cos(angle) * 290.0,
+                "vy": math.sin(angle) * 290.0,
+                "damage": self.damage * 1.9,
+                "life": 3.5,
+                "radius": 15.0,
+                "color": color,
+                "shape": "fireball",
+                "trail": 8,
+                "burst_count": 14,
+                "explode_spawn_on_hit": False,
+                "explode_spawn": {
+                    "count": 10,
+                    "speed": 225.0,
+                    "arc": math.tau,
+                    "angle_offset": rng.uniform(0.0, math.tau),
+                    "damage": self.damage * 0.58,
+                    "life": 2.8,
+                    "radius": 6.0,
+                    "color": (255, 175, 95),
+                    "shape": "orb",
+                    "trail": 3,
+                    "burst_count": 6,
+                },
+            }
+        )
+        particles.directional(self.x, self.y, angle, 0.26, color, count=14, speed=80, life=0.26, size=4)
+
+    def draw(self, surface: pygame.Surface, cam) -> None:
+        if self._state == "portal":
+            if self._portal_entry is not None:
+                self._draw_portal(surface, cam, self._portal_entry[0], self._portal_entry[1], (255, 125, 85), 1.0)
+            if self._portal_exit is not None:
+                self._draw_portal(surface, cam, self._portal_exit[0], self._portal_exit[1], (255, 210, 140), 0.85)
+            return
+
+        visible = cam.is_visible(self.x, self.y, self.radius + 48)
+        if not visible:
+            for sx, sy in self._segments:
+                if cam.is_visible(sx, sy, self.radius):
+                    visible = True
+                    break
+        if not visible:
+            return
+
+        self._segment_cache = []
+        shadow_color = (0, 0, 0, 80)
+        for idx in range(len(self._segments) - 1, -1, -1):
+            sx, sy = self._segments[idx]
+            seg_r = self.radius * (0.84 - idx * 0.045)
+            self._segment_cache.append((sx, sy, seg_r))
+            dsx, dsy = cam.world_to_screen(sx, sy)
+            shadow = pygame.Surface((int(seg_r * 4), int(seg_r * 2.2)), pygame.SRCALPHA)
+            pygame.draw.ellipse(shadow, shadow_color, shadow.get_rect())
+            surface.blit(shadow, (int(dsx - shadow.get_width() / 2), int(dsy + seg_r * 0.55)))
+            body = tuple(max(30, int(c * (0.8 - idx * 0.03))) for c in self.color)
+            accent = tuple(min(255, c + 35) for c in body)
+            shapes.glow_circle(surface, body, dsx, dsy, seg_r * 0.9, layers=2, alpha_start=34)
+            shapes.regular_polygon(surface, body, dsx, dsy, seg_r, 6, self._anim_t * 0.25 + idx * 0.22)
+            shapes.regular_polygon(surface, accent, dsx, dsy, seg_r, 6, self._anim_t * 0.25 + idx * 0.22, width=2)
+            core_x = dsx + math.cos(self._anim_t * 1.1 + idx * 0.4) * seg_r * 0.15
+            core_y = dsy + math.sin(self._anim_t * 1.1 + idx * 0.4) * seg_r * 0.15
+            shapes.circle(surface, accent, core_x, core_y, max(2.0, seg_r * 0.18))
+
+        head_sx, head_sy = cam.world_to_screen(self.x, self.y)
+        head_r = self.radius * (1.0 + math.sin(self._anim_t * 1.5) * 0.04 + self._hit_burst * 0.14)
+        head_color = (255, 255, 255) if self._flash_timer > 0 else self.color
+        outline = (255, 220, 180)
+        shadow = pygame.Surface((int(head_r * 4.6), int(head_r * 2.4)), pygame.SRCALPHA)
+        pygame.draw.ellipse(shadow, shadow_color, shadow.get_rect())
+        surface.blit(shadow, (int(head_sx - shadow.get_width() / 2), int(head_sy + head_r * 0.58)))
+        shapes.glow_circle(surface, head_color, head_sx, head_sy, head_r * 1.05, layers=4, alpha_start=42)
+        head_angle = self._facing
+        pts = [
+            (head_sx + math.cos(head_angle) * head_r * 1.55, head_sy + math.sin(head_angle) * head_r * 1.55),
+            (head_sx + math.cos(head_angle + 2.42) * head_r, head_sy + math.sin(head_angle + 2.42) * head_r),
+            (head_sx + math.cos(head_angle + math.pi) * head_r * 0.48, head_sy + math.sin(head_angle + math.pi) * head_r * 0.48),
+            (head_sx + math.cos(head_angle - 2.42) * head_r, head_sy + math.sin(head_angle - 2.42) * head_r),
+        ]
+        shapes.polygon(surface, head_color, pts)
+        shapes.polygon(surface, outline, pts, width=2)
+        jaw_a = head_angle + 0.45
+        jaw_b = head_angle - 0.45
+        shapes.line(surface, outline, head_sx, head_sy, head_sx + math.cos(jaw_a) * head_r * 1.25, head_sy + math.sin(jaw_a) * head_r * 1.25, 2)
+        shapes.line(surface, outline, head_sx, head_sy, head_sx + math.cos(jaw_b) * head_r * 1.25, head_sy + math.sin(jaw_b) * head_r * 1.25, 2)
+        eye_off = head_angle + math.pi / 2
+        ex = head_sx + math.cos(head_angle) * head_r * 0.35 + math.cos(eye_off) * head_r * 0.22
+        ey = head_sy + math.sin(head_angle) * head_r * 0.35 + math.sin(eye_off) * head_r * 0.22
+        shapes.circle(surface, (255, 245, 200), ex, ey, 3)
+        ex = head_sx + math.cos(head_angle) * head_r * 0.35 - math.cos(eye_off) * head_r * 0.22
+        ey = head_sy + math.sin(head_angle) * head_r * 0.35 - math.sin(eye_off) * head_r * 0.22
+        shapes.circle(surface, (255, 245, 200), ex, ey, 3)
+
+        if self._phase_two:
+            aura_r = head_r + 10 + math.sin(self._anim_t * 2.2) * 3
+            shapes.ring(surface, (255, 170, 110), head_sx, head_sy, aura_r, 2)
+
+    def _draw_portal(self, surface: pygame.Surface, cam, x: float, y: float, color, alpha_scale: float) -> None:
+        if not cam.is_visible(x, y, self.radius + 40):
+            return
+        sx, sy = cam.world_to_screen(x, y)
+        radius = self.radius + 12 + math.sin(self._anim_t * 3.0) * 3
+        portal = pygame.Surface((int(radius * 3), int(radius * 3)), pygame.SRCALPHA)
+        pr = portal.get_rect()
+        center = (pr.width // 2, pr.height // 2)
+        pygame.draw.circle(portal, (*color, int(34 * alpha_scale)), center, int(radius * 1.35))
+        pygame.draw.circle(portal, (*color, int(85 * alpha_scale)), center, int(radius), 3)
+        pygame.draw.circle(portal, (20, 10, 10, int(200 * alpha_scale)), center, int(radius * 0.74))
+        surface.blit(portal, (int(sx - portal.get_width() / 2), int(sy - portal.get_height() / 2)))
+        for idx in range(6):
+            angle = self._anim_t * 1.6 + math.tau * idx / 6
+            ox = sx + math.cos(angle) * radius * 1.08
+            oy = sy + math.sin(angle) * radius * 1.08
+            shapes.circle(surface, color, ox, oy, 2.5)
+
+
 class StormTyrantBoss(Enemy):
     _BASE = dict(max_hp=1600, speed=78, damage=20, radius=38, color=(255, 95, 165), xp_drop=90, gold_drop=28, knockback_resist=0.9)
     _STATE_ORDER = ("散射压制", "环阵轰击", "冲锋追猎")
@@ -1383,7 +1793,7 @@ class EliteSummoner(ZombieEnemy):
                 angle = math.tau * idx / self._SUMMON_COUNT
                 sx = self.x + math.cos(angle) * self.radius * 3
                 sy = self.y + math.sin(angle) * self.radius * 3
-                self.pending_spawns.append(("zombie", sx, sy))
+                self.pending_spawns.append({"etype": "zombie", "x": sx, "y": sy})
             particles.burst(self.x, self.y, self.color, count=12, speed=50, life=0.5, size=4)
 
 
@@ -1506,6 +1916,7 @@ _NORMAL_MAP: dict[str, type] = {
     "exploder": ExploderEnemy,
     "gunner": GunnerEnemy,
     "artillery": ArtilleryEnemy,
+    "geometric_devourer": GeometricDevourerBoss,
     "storm_tyrant": StormTyrantBoss,
     "void_colossus": VoidColossusBoss,
 }

@@ -108,6 +108,29 @@ class PickupSystem:
     def clear(self) -> None:
         self._items.clear()
 
+    def absorb_all(self, player, xp_ratio: float = 1.0, gold_ratio: float = 1.0) -> tuple[float, int]:
+        total_xp = 0
+        total_gold = 0
+        for item in self._items:
+            if not item.alive:
+                continue
+            if item.kind.startswith("xp_"):
+                total_xp += item.value
+            else:
+                total_gold += item.value
+
+        gained_xp = total_xp * max(0.0, xp_ratio)
+        gained_gold = int(total_gold * max(0.0, gold_ratio))
+        if gained_xp > 0:
+            player.gain_xp(gained_xp)
+            particles.sparkle(player.x, player.y, (120, 220, 255), count=10, radius=26)
+        if gained_gold > 0:
+            player.gain_gold(gained_gold)
+            particles.sparkle(player.x, player.y, (255, 220, 100), count=8, radius=22)
+
+        self.clear()
+        return gained_xp, gained_gold
+
     @property
     def count(self) -> int:
         return len(self._items)

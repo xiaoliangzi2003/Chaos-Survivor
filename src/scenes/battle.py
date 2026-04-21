@@ -184,6 +184,17 @@ class BattleScene(Scene):
                 ey = self._player.y + math.sin(angle) * distance
             kwargs = {key: value for key, value in enemy_spec.items() if key not in {"etype", "x", "y", "boss_rank"}}
             boss_rank = enemy_spec.get("boss_rank")
+        elif isinstance(enemy_spec, (tuple, list)) and enemy_spec and isinstance(enemy_spec[0], str):
+            etype = enemy_spec[0]
+            if len(enemy_spec) >= 3:
+                ex = float(enemy_spec[1])
+                ey = float(enemy_spec[2])
+            else:
+                angle = rng.uniform(0, math.tau)
+                distance = dist or rng.uniform(520, 720)
+                ex = self._player.x + math.cos(angle) * distance
+                ey = self._player.y + math.sin(angle) * distance
+            kwargs = dict(enemy_spec[3]) if len(enemy_spec) >= 4 and isinstance(enemy_spec[3], dict) else {}
         else:
             etype = enemy_spec
             angle = rng.uniform(0, math.tau)
@@ -299,6 +310,7 @@ class BattleScene(Scene):
         for enemy in self._enemies:
             self._player.kills += 1
             self._pickups.spawn_rewards(enemy.x, enemy.y, enemy.xp_drop, enemy.gold_drop)
+        self._pickups.absorb_all(self._player, xp_ratio=0.25, gold_ratio=0.25)
         self._enemies.clear()
         self._enemy_bullets.clear()
         self._hazards.clear()

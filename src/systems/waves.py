@@ -16,6 +16,7 @@ from src.core.config import (
 from src.core.rng import rng
 
 BOSS_POOL: tuple[str, ...] = (
+    "geometric_devourer",
     "storm_tyrant",
     "void_colossus",
 )

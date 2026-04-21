@@ -29,6 +29,8 @@ class EnemyBullet:
         tracking: bool = False,
         turn_speed: float = 2.0,
         explode_fire: dict | None = None,
+        explode_spawn: dict | None = None,
+        explode_spawn_on_hit: bool = True,
         burst_count: int = 10,
     ) -> None:
         self.x = x
@@ -46,16 +48,18 @@ class EnemyBullet:
         self.tracking = tracking
         self.turn_speed = turn_speed
         self.explode_fire = dict(explode_fire) if explode_fire else None
+        self.explode_spawn = dict(explode_spawn) if explode_spawn else None
+        self.explode_spawn_on_hit = explode_spawn_on_hit
         self.burst_count = burst_count
         self.alive = True
 
-    def update(self, dt: float, player, hazard_system=None) -> None:
+    def update(self, dt: float, player, hazard_system=None, bullet_system=None) -> None:
         if not self.alive:
             return
 
         self.life -= dt
         if self.life <= 0:
-            self._explode(hazard_system)
+            self._explode(hazard_system, bullet_system, on_hit=False)
             return
 
         if self.tracking:
@@ -74,7 +78,7 @@ class EnemyBullet:
             actual = player.take_damage(self.damage, self.x, self.y)
             if actual > 0:
                 particles.burst(self.x, self.y, self.color, count=self.burst_count, speed=90, life=0.35, size=4)
-            self._explode(hazard_system)
+            self._explode(hazard_system, bullet_system, on_hit=True)
 
     def _update_tracking(self, dt: float, player) -> None:
         dx = player.x - self.x
@@ -90,7 +94,7 @@ class EnemyBullet:
         self.vx = math.cos(new_angle) * self._speed
         self.vy = math.sin(new_angle) * self._speed
 
-    def _explode(self, hazard_system=None) -> None:
+    def _explode(self, hazard_system=None, bullet_system=None, on_hit: bool = False) -> None:
         if not self.alive:
             return
         particles.burst(self.x, self.y, self.color, count=max(8, self.burst_count + 2), speed=105, life=0.38, size=5)
@@ -99,6 +103,22 @@ class EnemyBullet:
             payload.setdefault("x", self.x)
             payload.setdefault("y", self.y)
             hazard_system.spawn_fire_pit(**payload)
+        if self.explode_spawn and bullet_system is not None and (self.explode_spawn_on_hit or not on_hit):
+            payload = dict(self.explode_spawn)
+            count = max(1, int(payload.pop("count", 6)))
+            speed = float(payload.pop("speed", 220.0))
+            arc = float(payload.pop("arc", math.tau))
+            start_angle = float(payload.pop("start_angle", 0.0))
+            angle_offset = float(payload.pop("angle_offset", 0.0))
+            for idx in range(count):
+                angle = start_angle + angle_offset + arc * idx / count
+                bullet_system.spawn(
+                    x=self.x,
+                    y=self.y,
+                    vx=math.cos(angle) * speed,
+                    vy=math.sin(angle) * speed,
+                    **payload,
+                )
         self.alive = False
 
     def draw(self, surface: pygame.Surface, cam, low_detail: bool = False) -> None:
@@ -120,6 +140,8 @@ class EnemyBullet:
             _draw_bolt(surface, sx, sy, angle, self.radius, self.color)
         elif self.shape == "missile":
             _draw_missile(surface, sx, sy, angle, self.radius, self.color, low_detail)
+        elif self.shape == "fireball":
+            _draw_fireball(surface, sx, sy, self.radius, self.color, low_detail)
         else:
             if not low_detail:
                 shapes.glow_circle(surface, self.color, sx, sy, self.radius, layers=2, alpha_start=55)
@@ -155,10 +177,10 @@ class EnemyBulletSystem:
             left, top, right, bottom = bounds
         margin = 260.0
         for bullet in self._active:
-            bullet.update(dt, player, hazard_system)
+            bullet.update(dt, player, hazard_system, self)
             if bullet.alive and bounds is not None:
                 if bullet.x < left - margin or bullet.x > right + margin or bullet.y < top - margin or bullet.y > bottom + margin:
-                    bullet._explode(hazard_system)
+                    bullet._explode(hazard_system, self, on_hit=False)
             if bullet.alive:
                 keep.append(bullet)
         self._active = keep
@@ -226,3 +248,11 @@ def _draw_missile(surface, sx, sy, angle, radius, color, low_detail: bool) -> No
     tail_x = sx - math.cos(angle) * radius * 1.4
     tail_y = sy - math.sin(angle) * radius * 1.4
     shapes.circle(surface, (255, 150, 40), tail_x, tail_y, max(2, int(radius * 0.55)))
+
+
+def _draw_fireball(surface, sx, sy, radius, color, low_detail: bool) -> None:
+    if not low_detail:
+        shapes.glow_circle(surface, color, sx, sy, radius * 1.15, layers=3, alpha_start=40)
+    shapes.circle(surface, (120, 25, 8), sx, sy, radius)
+    shapes.circle(surface, color, sx, sy, radius * 0.82)
+    shapes.circle(surface, (255, 210, 120), sx, sy, radius * 0.36)
