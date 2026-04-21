@@ -2043,6 +2043,14 @@ class VoidColossusBoss(Enemy):
     _BASE = dict(max_hp=5550, speed=62, damage=24, radius=44, color=(90, 120, 255), xp_drop=110, gold_drop=34, knockback_resist=0.92)
     _STATE_ORDER = ("重压震荡", "虚空喷射", "引力坍塌")
     _STATE_DURATIONS = {"重压震荡": 4.5, "虚空喷射": 4.2, "引力坍塌": 4.8}
+    _GRAVITY_BLACK_HOLE_CD = 2.75
+    _GRAVITY_BLACK_HOLE_LIFE = 3.5
+    _GRAVITY_BLACK_HOLE_PULL_RADIUS = 190
+    _GRAVITY_BLACK_HOLE_DAMAGE_RADIUS = 38
+    _GRAVITY_BLACK_HOLE_PULL = 145
+    _GRAVITY_MIN_OFFSET = 145.0
+    _GRAVITY_MAX_OFFSET = 240.0
+    _PLAYER_SPAWN_SAFE_RADIUS = 240.0
 
     def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
         d = DIFFICULTY_SETTINGS[difficulty]
@@ -2083,6 +2091,9 @@ class VoidColossusBoss(Enemy):
             particles.burst(self.x, self.y, self.color, count=16, speed=75, life=0.35, size=5)
             state = self._STATE_ORDER[self._state_index]
             self.attack_label = state
+            if state == "引力坍塌":
+                # Give the player a short reposition window before the first black hole lands.
+                self._shot_timer = self._GRAVITY_BLACK_HOLE_CD * 0.85
 
         if state == "重压震荡":
             self._state_barrage(dt, player)
@@ -2128,21 +2139,43 @@ class VoidColossusBoss(Enemy):
 
         self._shot_timer -= dt
         if self._shot_timer <= 0:
-            self._shot_timer = 1.25
-            self.pending_hazards.append(
-                {
-                    "kind": "black_hole",
-                    "x": player.x + rng.uniform(-70, 70),
-                    "y": player.y + rng.uniform(-70, 70),
-                    "life": 4.2,
-                    "pull_radius": 240,
-                    "damage_radius": 44,
-                    "pull_strength": 260,
-                    "dps": self.damage * 1.8,
-                    "color": (105, 130, 255),
-                }
-            )
+            self._shot_timer = self._GRAVITY_BLACK_HOLE_CD
+            spawn_pos = self._pick_gravity_black_hole_position(player)
+            if spawn_pos is not None:
+                bx, by = spawn_pos
+                self.pending_hazards.append(
+                    {
+                        "kind": "black_hole",
+                        "x": bx,
+                        "y": by,
+                        "life": self._GRAVITY_BLACK_HOLE_LIFE,
+                        "pull_radius": self._GRAVITY_BLACK_HOLE_PULL_RADIUS,
+                        "damage_radius": self._GRAVITY_BLACK_HOLE_DAMAGE_RADIUS,
+                        "pull_strength": self._GRAVITY_BLACK_HOLE_PULL,
+                        "dps": self.damage * 1.25,
+                        "color": (105, 130, 255),
+                    }
+                )
             self._shoot_at_player(player, 270, self.damage * 0.5, (120, 145, 255), spread=0.65, count=5, shape="orb", radius=7, life=3.8)
+
+    def _pick_gravity_black_hole_position(self, player) -> tuple[float, float] | None:
+        for _ in range(10):
+            angle = rng.uniform(0, math.tau)
+            offset = rng.uniform(self._GRAVITY_MIN_OFFSET, self._GRAVITY_MAX_OFFSET)
+            bx = player.x + math.cos(angle) * offset
+            by = player.y + math.sin(angle) * offset
+            if math.hypot(bx, by) < self._PLAYER_SPAWN_SAFE_RADIUS:
+                continue
+            return bx, by
+
+        base_angle = math.atan2(player.y, player.x)
+        if math.hypot(player.x, player.y) < 1.0:
+            base_angle = math.atan2(self.y, self.x)
+        if math.hypot(self.x, self.y) < 1.0:
+            base_angle = 0.0
+
+        safe_dist = self._PLAYER_SPAWN_SAFE_RADIUS + 56.0
+        return (math.cos(base_angle) * safe_dist, math.sin(base_angle) * safe_dist)
 
     def _handle_summons(self, dt: float) -> None:
         self._summon_timer -= dt
