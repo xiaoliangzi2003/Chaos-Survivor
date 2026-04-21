@@ -60,6 +60,7 @@ class Enemy(Entity):
 
         self.pending_spawns: list[tuple[str, float, float]] = []
         self.pending_projectiles: list[dict] = []
+        self.pending_hazards: list[dict] = []
 
     def take_damage(self, amount: float, angle: float = 0.0, kb_force: float = 150.0) -> bool:
         self.hp -= amount
@@ -89,6 +90,7 @@ class Enemy(Entity):
 
         self.pending_spawns.clear()
         self.pending_projectiles.clear()
+        self.pending_hazards.clear()
         self._anim_t = (self._anim_t + dt * (2.0 + self.speed / 140.0)) % (math.pi * 2)
         self._hit_burst = max(0.0, self._hit_burst - dt * 6.0)
 
@@ -388,6 +390,141 @@ class WispEnemy(Enemy):
         shapes.line(surface, color, sx, sy + r * 0.55, sx, tail_y, 2)
 
 
+class SlimeEnemy(Enemy):
+    _SIZE_DATA = {
+        "large": {"hp": 68, "speed": 52, "damage": 12, "radius": 26, "xp": 7, "gold": 3, "children": ("medium", 3)},
+        "medium": {"hp": 30, "speed": 72, "damage": 8, "radius": 18, "xp": 4, "gold": 1, "children": ("small", 3)},
+        "small": {"hp": 12, "speed": 102, "damage": 5, "radius": 11, "xp": 2, "gold": 0, "children": None},
+    }
+    _COLOR_POOL = (
+        (120, 230, 120),
+        (120, 170, 255),
+        (255, 170, 120),
+        (225, 130, 255),
+    )
+
+    def __init__(self, x: float, y: float, difficulty: int = 1, size: str = "large", color: tuple[int, int, int] | None = None) -> None:
+        d = DIFFICULTY_SETTINGS[difficulty]
+        data = self._SIZE_DATA[size]
+        body_color = color or rng.choice(self._COLOR_POOL)
+        super().__init__(
+            x,
+            y,
+            data["hp"] * d["hp_mul"],
+            data["speed"],
+            data["damage"] * d["dmg_mul"],
+            data["radius"],
+            body_color,
+            max(1, int(data["xp"] * d["reward_mul"])),
+            max(0, int(data["gold"] * d["reward_mul"])),
+            0.05,
+        )
+        self.slime_size = size
+
+    def _on_death(self) -> None:
+        children = self._SIZE_DATA[self.slime_size]["children"]
+        if children is not None:
+            child_size, child_count = children
+            for idx in range(child_count):
+                angle = math.tau * idx / child_count + rng.uniform(-0.25, 0.25)
+                dist = self.radius * 1.1
+                self.pending_spawns.append(
+                    {
+                        "etype": f"slime_{child_size}",
+                        "x": self.x + math.cos(angle) * dist,
+                        "y": self.y + math.sin(angle) * dist,
+                        "color": self.color,
+                    }
+                )
+        super()._on_death()
+
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        wobble_x = math.sin(self._anim_t * 1.5) * self.radius * 0.08
+        wobble_y = math.cos(self._anim_t * 1.3) * self.radius * 0.12
+        scale = 1.0 + self._hit_burst * 0.15
+        rx = self.radius * 1.15 * scale
+        ry = self.radius * 0.88 * scale
+        color = (255, 255, 255) if flash else self.color
+        glow = tuple(min(255, c + 35) for c in color)
+        blob = pygame.Surface((int(rx * 3), int(ry * 3)), pygame.SRCALPHA)
+        rect = pygame.Rect(int(rx * 0.35), int(ry * 0.45), int(rx * 2), int(ry * 1.6))
+        pygame.draw.ellipse(blob, (*glow, 70), rect.inflate(10, 8))
+        pygame.draw.ellipse(blob, color, rect)
+        pygame.draw.ellipse(blob, (255, 255, 255), pygame.Rect(rect.x + rect.w * 0.18, rect.y + rect.h * 0.15, rect.w * 0.38, rect.h * 0.32))
+        surface.blit(blob, (int(sx - blob.get_width() / 2 + wobble_x), int(sy - blob.get_height() / 2 + wobble_y)))
+
+
+class BlackHoleMage(Enemy):
+    _BASE = dict(max_hp=76, speed=54, damage=12, radius=18, color=(88, 72, 170), xp_drop=8, gold_drop=3, knockback_resist=0.1)
+    _IDEAL_DIST = 250.0
+    _CAST_CD = 5.0
+
+    def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
+        d = DIFFICULTY_SETTINGS[difficulty]
+        b = self._BASE
+        super().__init__(
+            x,
+            y,
+            b["max_hp"] * d["hp_mul"],
+            b["speed"],
+            b["damage"] * d["dmg_mul"],
+            b["radius"],
+            b["color"],
+            max(1, int(b["xp_drop"] * d["reward_mul"])),
+            b["gold_drop"],
+            b["knockback_resist"],
+        )
+        self._cast_timer = self._CAST_CD * 0.5
+
+    def _ai(self, dt: float, player) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        orbit = math.atan2(dy, dx) + math.pi / 2
+
+        if dist < self._IDEAL_DIST * 0.8:
+            self.vx = -dx / dist * self.speed
+            self.vy = -dy / dist * self.speed
+        elif dist > self._IDEAL_DIST * 1.2:
+            self.vx = dx / dist * self.speed * 0.7
+            self.vy = dy / dist * self.speed * 0.7
+        else:
+            self.vx = math.cos(orbit) * self.speed * 0.55
+            self.vy = math.sin(orbit) * self.speed * 0.55
+
+        self._cast_timer -= dt
+        if self._cast_timer <= 0:
+            self._cast_timer = self._CAST_CD
+            self.pending_hazards.append(
+                {
+                    "kind": "black_hole",
+                    "x": player.x + rng.uniform(-90, 90),
+                    "y": player.y + rng.uniform(-90, 90),
+                    "life": 4.8,
+                    "pull_radius": 220,
+                    "damage_radius": 36,
+                    "pull_strength": 220,
+                    "dps": self.damage * 1.6,
+                    "color": (110, 90, 220),
+                }
+            )
+            particles.burst(self.x, self.y, (140, 110, 255), count=10, speed=60, life=0.3, size=4)
+
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        r = self.radius * (1.0 + self._hit_burst * 0.15)
+        color = (255, 255, 255) if flash else self.color
+        glow = (165, 145, 255)
+        angle = self._anim_t * 0.9
+        shapes.glow_circle(surface, color, sx, sy, r, layers=3, alpha_start=34)
+        shapes.regular_polygon(surface, color, sx, sy, r, 6, angle)
+        shapes.circle(surface, (20, 12, 35), sx, sy, r * 0.42)
+        for idx in range(3):
+            oa = angle + math.tau * idx / 3
+            ox = sx + math.cos(oa) * r * 1.25
+            oy = sy + math.sin(oa) * r * 1.25
+            shapes.circle(surface, glow, ox, oy, 3)
+
+
 class TankEnemy(Enemy):
     _BASE = dict(max_hp=130, speed=46, damage=22, radius=22, color=(95, 130, 175), xp_drop=8, gold_drop=3, knockback_resist=0.6)
 
@@ -627,6 +764,7 @@ class StormTyrantBoss(Enemy):
         self._state_timer = 0.0
         self._shot_timer = 0.0
         self._dash_angle = 0.0
+        self._summon_timer = 2.8
 
     def update(self, dt: float, player) -> None:
         if self.hp / self.max_hp < 0.45:
@@ -651,6 +789,25 @@ class StormTyrantBoss(Enemy):
             self._state_ring(dt, player)
         else:
             self._state_dash(dt, player)
+        self._handle_summons(dt)
+
+    def _handle_summons(self, dt: float) -> None:
+        self._summon_timer -= dt
+        if self._summon_timer > 0:
+            return
+        self._summon_timer = 6.0
+        minions = ("wisp", "lancer", "slime_medium")
+        for idx, etype in enumerate(minions):
+            angle = self._anim_t + math.tau * idx / len(minions)
+            self.pending_spawns.append(
+                {
+                    "etype": etype,
+                    "x": self.x + math.cos(angle) * 110,
+                    "y": self.y + math.sin(angle) * 110,
+                    "color": self.color if "slime" in etype else None,
+                }
+            )
+        particles.burst(self.x, self.y, (255, 170, 210), count=12, speed=80, life=0.35, size=4)
 
     def _state_spread(self, dt: float, player) -> None:
         dx = player.x - self.x
@@ -849,6 +1006,10 @@ _NORMAL_MAP: dict[str, type] = {
     "speeder": SpeederEnemy,
     "lancer": LancerEnemy,
     "wisp": WispEnemy,
+    "slime_large": SlimeEnemy,
+    "slime_medium": SlimeEnemy,
+    "slime_small": SlimeEnemy,
+    "blackhole_mage": BlackHoleMage,
     "tank": TankEnemy,
     "wizard": WizardEnemy,
     "exploder": ExploderEnemy,
@@ -868,8 +1029,16 @@ ALL_ENEMY_TYPES = list(_NORMAL_MAP.keys())
 ALL_ELITE_TYPES = list(_ELITE_MAP.keys())
 
 
-def create_enemy(etype: str, x: float, y: float, difficulty: int = 1) -> Enemy:
+def create_enemy(etype: str, x: float, y: float, difficulty: int = 1, **kwargs) -> Enemy:
     cls = _NORMAL_MAP.get(etype) or _ELITE_MAP.get(etype)
     if cls is None:
         raise ValueError(f"Unknown enemy type: {etype}")
-    return cls(x, y, difficulty)
+    if cls is SlimeEnemy:
+        if etype == "slime_large":
+            kwargs.setdefault("size", "large")
+        elif etype == "slime_medium":
+            kwargs.setdefault("size", "medium")
+        else:
+            kwargs.setdefault("size", "small")
+    clean_kwargs = {key: value for key, value in kwargs.items() if value is not None}
+    return cls(x, y, difficulty, **clean_kwargs)

@@ -1,4 +1,4 @@
-"""战斗场景，包含受击反馈、Boss 血条和波间商店。"""
+"""战斗场景，负责边界、波次、危险区与战斗反馈。"""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ import pygame
 
 from src.core.camera import camera
 from src.core.config import (
+    BOSS_WAVES,
     COLOR_HP_BAR,
     COLOR_HP_BG,
     COLOR_XP_BAR,
@@ -33,6 +34,7 @@ from src.render.particles import particles
 from src.systems.damage_numbers import damage_numbers
 from src.systems.enemy_bullets import EnemyBulletSystem
 from src.systems.grid import SpatialGrid
+from src.systems.hazards import HazardSystem
 from src.systems.pickups import PickupSystem
 from src.systems.progression import apply_upgrade, build_upgrade_options
 from src.systems.shop_items import apply_shop_offer, build_shop_offers, refresh_cost
@@ -54,6 +56,7 @@ class BattleScene(Scene):
         self._font_boss = get_font(24, bold=True)
 
         self._map = MapRenderer(rng.choice(_THEME_NAMES), seed=rng.seed())
+        self._bounds = self._map.world_bounds
         self._player = Player(0.0, 0.0)
         self._player.combat_feedback = self._handle_combat_feedback
         for weapon_id in STARTING_WEAPON_IDS:
@@ -63,6 +66,7 @@ class BattleScene(Scene):
         self._grid = SpatialGrid()
         self._projectiles = ProjectileSystem()
         self._enemy_bullets = EnemyBulletSystem()
+        self._hazards = HazardSystem()
         self._pickups = PickupSystem()
         self._wave_system = WaveSystem(self.difficulty)
 
@@ -79,7 +83,7 @@ class BattleScene(Scene):
         self._boss_intro_timer = 0.0
 
         self._red_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        camera.update(0, 0, 0)
+        camera.update(0, 0, 0, bounds=self._bounds)
 
     def handle_event(self, event: pygame.event.Event) -> None:
         if event.type != pygame.KEYDOWN:
@@ -101,6 +105,7 @@ class BattleScene(Scene):
             self._player.take_damage(9999)
         elif key == pygame.K_t:
             self._map = MapRenderer(rng.choice(_THEME_NAMES), seed=rng.seed())
+            self._bounds = self._map.world_bounds
         elif key == pygame.K_e:
             self._spawn_one(rng.choice(ALL_ELITE_TYPES), dist=220)
         elif key == pygame.K_BACKQUOTE:
@@ -113,22 +118,17 @@ class BattleScene(Scene):
             damage_numbers.update(dt * 0.35)
             return
 
-        player = self._player
-        player.update(dt)
-        camera.update(player.x, player.y, dt)
+        hazard_force = self._hazards.update(dt, self._player)
+        self._player.update(dt, bounds=self._bounds, external_force=hazard_force)
+        camera.update(self._player.x, self._player.y, dt, bounds=self._bounds)
         particles.update(dt)
         damage_numbers.update(dt)
         self._boss_intro_timer = max(0.0, self._boss_intro_timer - dt)
 
-        if not player.alive:
+        if not self._player.alive:
             self._death_delay += dt
             if self._death_delay >= 2.0:
-                self.game.set_scene(
-                    "result",
-                    victory=False,
-                    stats=self._build_stats(),
-                    restart_kwargs={"difficulty": self.difficulty},
-                )
+                self.game.set_scene("result", victory=False, stats=self._build_stats(), restart_kwargs={"difficulty": self.difficulty})
             return
 
         self._update_wave(dt)
@@ -136,15 +136,16 @@ class BattleScene(Scene):
         self._update_grid()
         self._update_weapons(dt)
         self._projectiles.update(dt, self._enemies, self._grid)
-        self._enemy_bullets.update(dt, player)
+        self._enemy_bullets.update(dt, self._player)
         self._check_player_enemy_collision()
         self._collect_dead()
-        self._pickups.update(dt, player)
+        self._pickups.update(dt, self._player)
         self._handle_pending_level_up()
         self._check_victory(dt)
 
     def draw(self, surface: pygame.Surface) -> None:
         self._map.draw(surface, camera)
+        self._hazards.draw(surface, camera)
         self._pickups.draw(surface, camera)
 
         for enemy in sorted(self._enemies, key=lambda item: item.y):
@@ -169,17 +170,27 @@ class BattleScene(Scene):
         if step.entered_break:
             self._clear_wave_with_drops()
             self._open_shop()
-        for enemy_type in step.spawns:
+        for spec in step.spawns:
             if len(self._enemies) >= MAX_ENEMIES:
                 break
-            self._spawn_one(enemy_type)
+            self._spawn_one(spec)
 
-    def _spawn_one(self, enemy_type: str, dist: float | None = None) -> None:
-        angle = rng.uniform(0, math.tau)
-        distance = dist or rng.uniform(520, 720)
-        ex = self._player.x + math.cos(angle) * distance
-        ey = self._player.y + math.sin(angle) * distance
-        enemy = create_enemy(enemy_type, ex, ey, self.difficulty)
+    def _spawn_one(self, enemy_spec, dist: float | None = None) -> None:
+        if isinstance(enemy_spec, dict):
+            etype = enemy_spec["etype"]
+            ex = enemy_spec["x"]
+            ey = enemy_spec["y"]
+            kwargs = {key: value for key, value in enemy_spec.items() if key not in {"etype", "x", "y"}}
+        else:
+            etype = enemy_spec
+            angle = rng.uniform(0, math.tau)
+            distance = dist or rng.uniform(520, 720)
+            ex = self._player.x + math.cos(angle) * distance
+            ey = self._player.y + math.sin(angle) * distance
+            kwargs = {}
+
+        ex, ey = self._clamp_position(ex, ey, 18)
+        enemy = create_enemy(etype, ex, ey, self.difficulty, **kwargs)
         self._enemies.append(enemy)
         if getattr(enemy, "is_boss", False):
             self._boss_intro_timer = 2.2
@@ -189,11 +200,18 @@ class BattleScene(Scene):
     def _update_enemies(self, dt: float) -> None:
         for enemy in self._enemies:
             enemy.update(dt, self._player)
-            for spawn_type, sx, sy in enemy.pending_spawns:
+            enemy.x, enemy.y = self._clamp_position(enemy.x, enemy.y, enemy.radius)
+            for spawn in enemy.pending_spawns:
                 if len(self._enemies) < MAX_ENEMIES:
-                    self._enemies.append(create_enemy(spawn_type, sx, sy, self.difficulty))
+                    self._spawn_one(spawn)
             for shot in enemy.pending_projectiles:
                 self._enemy_bullets.spawn(**shot)
+            for hazard in enemy.pending_hazards:
+                if hazard.get("kind") == "black_hole":
+                    payload = dict(hazard)
+                    payload.pop("kind", None)
+                    payload["x"], payload["y"] = self._clamp_position(payload["x"], payload["y"], payload["damage_radius"])
+                    self._hazards.spawn_black_hole(**payload)
 
     def _update_grid(self) -> None:
         self._grid.clear()
@@ -230,6 +248,7 @@ class BattleScene(Scene):
             self._pickups.spawn_rewards(enemy.x, enemy.y, enemy.xp_drop, enemy.gold_drop)
         self._enemies.clear()
         self._enemy_bullets.clear()
+        self._hazards.clear()
         particles.burst(self._player.x, self._player.y, (255, 220, 120), count=20, speed=80, life=0.45, size=5)
 
     def _handle_pending_level_up(self) -> None:
@@ -286,12 +305,7 @@ class BattleScene(Scene):
         self._victory_delay += dt
         self._show_victory = True
         if self._victory_delay >= 1.2:
-            self.game.set_scene(
-                "result",
-                victory=True,
-                stats=self._build_stats(),
-                restart_kwargs={"difficulty": self.difficulty},
-            )
+            self.game.set_scene("result", victory=True, stats=self._build_stats(), restart_kwargs={"difficulty": self.difficulty})
 
     def _handle_combat_feedback(self, kind: str, **payload) -> None:
         if kind == "enemy_hit":
@@ -321,12 +335,7 @@ class BattleScene(Scene):
             current_alpha = int(alpha * (1 - idx / border))
             if current_alpha <= 0:
                 continue
-            pygame.draw.rect(
-                self._red_overlay,
-                (200, 20, 20, current_alpha),
-                pygame.Rect(idx, idx, SCREEN_WIDTH - idx * 2, SCREEN_HEIGHT - idx * 2),
-                1,
-            )
+            pygame.draw.rect(self._red_overlay, (200, 20, 20, current_alpha), pygame.Rect(idx, idx, SCREEN_WIDTH - idx * 2, SCREEN_HEIGHT - idx * 2), 1)
         surface.blit(self._red_overlay, (0, 0))
 
     def _draw_death_overlay(self, surface: pygame.Surface) -> None:
@@ -356,15 +365,22 @@ class BattleScene(Scene):
         surface.blit(fnt.render(f"击杀 {player.kills}", True, (230, 190, 190)), (SCREEN_WIDTH - 150, 40))
         surface.blit(fnt.render(f"难度 {DIFFICULTY_NAMES[self.difficulty]}", True, (255, 205, 90)), (SCREEN_WIDTH - 210, 66))
         surface.blit(fnt.render(f"敌人 {len(self._enemies)}  掉落 {self._pickups.count}", True, (210, 165, 165)), (SCREEN_WIDTH - 250, 92))
-        surface.blit(fnt.render(f"敌方弹幕 {self._enemy_bullets.count}", True, (235, 145, 145)), (SCREEN_WIDTH - 210, 118))
+        surface.blit(fnt.render(f"敌方弹幕 {self._enemy_bullets.count}  危险区 {self._hazards.count}", True, (235, 145, 145)), (SCREEN_WIDTH - 275, 118))
 
         wave_label = f"第 {self._wave_system.current_wave} 波"
         if self._wave_system.is_break:
             wave_label += " - 商店阶段"
+        elif self._wave_system.current_wave in BOSS_WAVES and self._active_boss() is not None:
+            wave_label += " - 首领战"
         elif self._wave_system.cleanup_mode:
             wave_label += " - 清场中"
         surface.blit(self._font_medium.render(wave_label, True, (255, 220, 120)), (14, 132))
-        surface.blit(self._font_small.render(f"剩余时间 {self._wave_system.time_left:04.1f} 秒", True, (180, 180, 200)), (16, 166))
+
+        if self._wave_system.current_wave in BOSS_WAVES and self._active_boss() is not None:
+            time_text = "目标：击败首领"
+        else:
+            time_text = f"剩余时间 {self._wave_system.time_left:04.1f} 秒"
+        surface.blit(self._font_small.render(time_text, True, (180, 180, 200)), (16, 166))
 
         if self._wave_system.banner.timer > 0:
             banner = self._font_medium.render(self._wave_system.banner.text, True, (255, 230, 120))
@@ -376,7 +392,7 @@ class BattleScene(Scene):
 
         for idx, weapon in enumerate(self._player.weapons):
             text = self._font_small.render(f"{weapon.NAME}  {weapon.level}级", True, (210, 210, 220))
-            surface.blit(text, (14, SCREEN_HEIGHT - 110 + idx * 20))
+            surface.blit(text, (14, SCREEN_HEIGHT - 130 + idx * 20))
 
         debug = self._font_small.render("F 受伤  H 治疗  X 经验  G 金币  K 死亡  T 地图  E 精英  ` 清场", True, (95, 95, 110))
         surface.blit(debug, debug.get_rect(centerx=SCREEN_WIDTH // 2, y=SCREEN_HEIGHT - 26))
@@ -389,7 +405,6 @@ class BattleScene(Scene):
         boss = self._active_boss()
         if boss is None:
             return
-
         outer = pygame.Rect(SCREEN_WIDTH // 2 - 260, 78, 520, 40)
         inner = outer.inflate(-8, -8)
         pygame.draw.rect(surface, (20, 10, 18), outer, border_radius=12)
@@ -410,6 +425,13 @@ class BattleScene(Scene):
             if enemy.alive and getattr(enemy, "is_boss", False):
                 return enemy
         return None
+
+    def _clamp_position(self, x: float, y: float, radius: float) -> tuple[float, float]:
+        left, top, right, bottom = self._bounds
+        return (
+            max(left + radius, min(right - radius, x)),
+            max(top + radius, min(bottom - radius, y)),
+        )
 
     def _build_stats(self) -> dict:
         return {

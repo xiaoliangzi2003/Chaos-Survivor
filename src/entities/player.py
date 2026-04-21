@@ -75,7 +75,12 @@ class Player(Entity):
         self.total_damage_taken = 0.0
         self.survive_time = 0.0
 
-    def update(self, dt: float) -> None:
+    def update(
+        self,
+        dt: float,
+        bounds: tuple[float, float, float, float] | None = None,
+        external_force: tuple[float, float] = (0.0, 0.0),
+    ) -> None:
         if not self.alive:
             self.dead_timer += dt
             return
@@ -90,8 +95,14 @@ class Player(Entity):
         lerp_t = min(1.0, dt * (12.5 if moving else 20.0))
         self.vx += (target_vx - self.vx) * lerp_t
         self.vy += (target_vy - self.vy) * lerp_t
-        self.x += self.vx * dt
-        self.y += self.vy * dt
+        pull_x, pull_y = external_force
+        self.x += (self.vx + pull_x) * dt
+        self.y += (self.vy + pull_y) * dt
+
+        if bounds is not None:
+            left, top, right, bottom = bounds
+            self.x = max(left + self.radius, min(right - self.radius, self.x))
+            self.y = max(top + self.radius, min(bottom - self.radius, self.y))
 
         if abs(self.vx) > 15 or abs(self.vy) > 15:
             self._facing = math.atan2(self.vy, self.vx)
