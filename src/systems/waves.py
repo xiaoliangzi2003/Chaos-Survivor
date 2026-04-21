@@ -206,83 +206,119 @@ class WaveSystem:
     def _choose_enemy_type(self) -> str:
         roll = rng.random()
         if self.current_wave <= 2:
-            return "zombie" if roll < 0.72 else "speeder"
-        if self.current_wave <= 4:
-            if roll < 0.34:
+            if roll < 0.60:
                 return "zombie"
-            if roll < 0.54:
+            if roll < 0.86:
                 return "speeder"
-            if roll < 0.68:
+            return "razorbat"
+        if self.current_wave <= 4:
+            if roll < 0.28:
+                return "zombie"
+            if roll < 0.46:
+                return "speeder"
+            if roll < 0.58:
                 return "lancer"
-            if roll < 0.82:
+            if roll < 0.70:
+                return "razorbat"
+            if roll < 0.80:
+                return "blink_skirmisher"
+            if roll < 0.90:
                 return "slime_large"
-            if roll < 0.92:
+            if roll < 0.96:
                 return "exploder"
             return "wizard"
         if self.current_wave <= 7:
-            if roll < 0.22:
+            if roll < 0.17:
                 return "zombie"
-            if roll < 0.36:
+            if roll < 0.29:
                 return "speeder"
-            if roll < 0.48:
+            if roll < 0.39:
                 return "lancer"
-            if roll < 0.60:
+            if roll < 0.49:
                 return "wisp"
-            if roll < 0.72:
+            if roll < 0.57:
+                return "razorbat"
+            if roll < 0.64:
+                return "blink_skirmisher"
+            if roll < 0.71:
+                return "embermine"
+            if roll < 0.77:
                 return "slime_large"
-            if roll < 0.78:
+            if roll < 0.83:
+                return "brood_seeder"
+            if roll < 0.88:
                 return "blackhole_mage"
-            if roll < 0.86:
+            if roll < 0.93:
                 return "line_raider"
-            if roll < 0.92:
+            if roll < 0.97:
                 return "wizard"
             return "gunner"
         if self.current_wave <= 11:
-            if roll < 0.14:
+            if roll < 0.10:
                 return "zombie"
-            if roll < 0.25:
+            if roll < 0.18:
                 return "speeder"
-            if roll < 0.35:
+            if roll < 0.26:
                 return "lancer"
-            if roll < 0.45:
+            if roll < 0.34:
                 return "wisp"
+            if roll < 0.42:
+                return "razorbat"
+            if roll < 0.49:
+                return "blink_skirmisher"
             if roll < 0.56:
+                return "embermine"
+            if roll < 0.62:
+                return "brood_seeder"
+            if roll < 0.69:
                 return "slime_large"
-            if roll < 0.63:
+            if roll < 0.75:
                 return "shield_caster"
-            if roll < 0.70:
+            if roll < 0.80:
                 return "blackhole_mage"
-            if roll < 0.77:
-                return "line_raider"
             if roll < 0.85:
+                return "line_raider"
+            if roll < 0.89:
                 return "wizard"
             if roll < 0.93:
                 return "gunner"
             if roll < 0.97:
+                return "siege_pylon"
+            if roll < 0.99:
                 return "artillery"
             return "tank"
-        if roll < 0.10:
+        if roll < 0.08:
             return "zombie"
-        if roll < 0.19:
+        if roll < 0.15:
             return "speeder"
-        if roll < 0.28:
+        if roll < 0.22:
             return "lancer"
-        if roll < 0.37:
+        if roll < 0.29:
             return "wisp"
-        if roll < 0.48:
+        if roll < 0.36:
+            return "razorbat"
+        if roll < 0.43:
+            return "blink_skirmisher"
+        if roll < 0.50:
+            return "embermine"
+        if roll < 0.57:
+            return "brood_seeder"
+        if roll < 0.64:
             return "slime_large"
-        if roll < 0.55:
+        if roll < 0.70:
             return "shield_caster"
-        if roll < 0.62:
+        if roll < 0.75:
             return "blackhole_mage"
-        if roll < 0.69:
+        if roll < 0.80:
             return "line_raider"
-        if roll < 0.77:
+        if roll < 0.85:
             return "wizard"
-        if roll < 0.86:
+        if roll < 0.90:
             return "gunner"
-        if roll < 0.94:
-            return "artillery"
+        if roll < 0.95:
+            return "siege_pylon"
         if roll < 0.98:
+            return "artillery"
+        if roll < 0.995:
             return "exploder"
         return "tank"
