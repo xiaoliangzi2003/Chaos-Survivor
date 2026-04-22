@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from src.core.config import RARITY_COLORS
+from src.core.config import PLAYER_DEFAULT, RARITY_COLORS
 from src.core.rng import rng
 
 
@@ -38,21 +38,21 @@ _SHOP_POOL = [
     # (offer_id, name, description, rarity, base_cost, payload)
     ("heal_patch",     "战地绷带",   "立刻回复 40 点生命值。",                               "common",   14, {"heal": 40}),
     ("regen_potion",   "回复药剂",   "每秒回复 5 点生命，持续 10 秒。",                      "uncommon", 22, {"hp_regen_temp": (5.0, 10.0)}),
-    ("heart_vessel",   "心之容器",   "生命上限提升 20 点。",                                 "common",   20, {"max_hp": 20}),
-    ("phantom_cloak",  "幻影斗篷",   "闪避几率提升 8%。",                                    "rare",     36, {"dodge_rate": 0.08}),
-    ("totem_undying",  "不死图腾",   "获得一次完全免伤护盾，可吸收下一次伤害。",            "epic",     52, {"guardian_shield": 1}),
+    ("heart_vessel",   "心之容器",   "生命上限提升 20 点。",                                 "common",   40, {"max_hp": 20}),
+    ("phantom_cloak",  "幻影斗篷",   "闪避几率提升 4%。",                                    "rare",     50, {"dodge_rate": 0.04}),
+    ("totem_undying",  "不死图腾",   "获得一次完全免伤护盾，可吸收下一次伤害。",            "epic",     60, {"guardian_shield": 1}),
     ("rapid_trigger",  "速射扳机",   "攻击速度提升 10%。",                                   "uncommon", 24, {"atk_speed_mul": 0.10}),
     ("lucky_seal",     "幸运印记",   "幸运值提升 5 点，增加稀有物品出现概率。",             "uncommon", 18, {"lucky": 5}),
-    ("power_gauntlet", "暴力拳套",   "暴击几率提升 12%。",                                   "rare",     34, {"crit_rate": 0.12}),
+    ("power_gauntlet", "暴力拳套",   "暴击几率提升 5%。",                                   "rare",     34, {"crit_rate": 0.05}),
     ("split_nest",     "分裂弹巢",   "额外投射物 +1，但伤害降低为原来的 90%。",             "rare",     38, {"proj_bonus": 1, "atk_mul_factor": 0.9}),
     ("wind_boots",     "疾风之靴",   "移动速度提升 10%。",                                   "uncommon", 22, {"speed_mul": 0.10}),
     ("holy_shield",    "神圣护盾",   "防御值提升 1 点。",                                    "common",   18, {"armor": 1}),
-    ("vampire_bat",    "吸血蝙蝠",   "攻击时回复造成伤害 1% 的生命值。",                    "rare",     40, {"vampire": 0.01}),
-    ("magnet",         "吸铁石",     "拾取范围提升 40。",                                    "common",   16, {"pickup_radius": 40}),
-    ("higher_math",    "高等数学",   "经验获取提高 20%。",                                   "common",   18, {"xp_mul": 0.20}),
-    ("gold_magnet",    "吸金磁",     "金币收益提高 20%。",                                   "uncommon", 22, {"gold_mul": 0.20}),
+    ("vampire_bat",    "吸血蝙蝠",   "攻击时回复造成伤害 0.3% 的生命值。",                    "rare",     40, {"vampire": 0.003}),
+    ("magnet",         "吸铁石",     "拾取范围提升 40。",                                    "common",   24, {"pickup_radius":                                                                                                             40}),
+    ("higher_math",    "高等数学",   "经验获取提高 10%。",                                   "common",   24, {"xp_mul": 0.10}),
+    ("gold_magnet",    "吸金磁",     "金币收益提高 10%。",                                   "uncommon", 22, {"gold_mul": 0.10}),
     ("adrenaline",     "肾上腺素",   "本波未受伤时伤害 ×150%，受伤后失效，每波重置。",      "epic",     48, {"adrenaline": True}),
-    ("voucher",        "购物券",     "获得 1 张购物券，可免费购买商店中任意商品。",          "epic",     30, {"voucher": 1}),
+    ("voucher",        "购物券",     "获得 1 张购物券，可免费购买商店中任意商品。",          "epic",     60, {"voucher": 1}),
     ("white_flag",     "白色旗帜",   "怪物数量减少 10%。",                                   "uncommon", 20, {"enemy_count_mul": 0.90}),
     ("monster_bait",   "怪物诱饵",   "怪物数量增加 10%（高风险高回报）。",                  "common",    8, {"enemy_count_mul": 1.10}),
     ("heavy_armor",    "沉重盔甲",   "防御值提升 2 点，但移动速度降低 10%。",               "uncommon", 26, {"armor": 2, "speed_mul": -0.10}),
@@ -64,8 +64,9 @@ _SHOP_POOL = [
     ("turret_item",    "炮塔",       "每 12 秒生成一座自动炮塔攻击敌人，波次间保留。",      "epic",     50, {"turret_item": True}),
     ("mushroom_item",  "毒蘑菇",     "每 30 秒生成毒蘑菇，吸引敌人并使其中毒，波次间保留。","epic",    48, {"mushroom_item": True}),
     ("knockback_bat",  "击退棒",     "击退力提升 2 点。",                                   "common",   16, {"kb_bonus": 2.0}),
-    ("bait",           "诱饵",       "伤害提升 15%，下一波次将额外出现一只精英怪。",        "uncommon", 26, {"atk_mul": 0.15, "spawn_elite": 1}),
-    ("campfire",       "篝火",       "在原地生成篝火，站在附近时每秒回复 1 点生命值。",     "uncommon", 24, {"campfire": True}),
+    ("bait",           "诱饵",       "伤害提升 15%，下一波次将额外出现一只精英怪。",        "uncommon", 45, {"atk_mul": 0.15, "spawn_elite":
+        1}),
+    ("campfire",       "篝火",       "在原地生成篝火，站在附近时每秒回复 1 点生命值。",     "uncommon", 45, {"campfire": True}),
 ]
 
 # Rarity weights at lucky=0
@@ -170,7 +171,7 @@ def apply_shop_offer(player, offer: ShopOffer) -> str:
         player._guardian_shields += p["guardian_shield"]
 
     if "dodge_rate" in p:
-        player.stats.dodge_rate += p["dodge_rate"]
+        player.stats.dodge_rate = min(0.70, player.stats.dodge_rate + p["dodge_rate"])
 
     if "atk_speed_mul" in p:
         player.stats.atk_speed_mul += p["atk_speed_mul"]
@@ -179,7 +180,7 @@ def apply_shop_offer(player, offer: ShopOffer) -> str:
         player.stats.lucky += p["lucky"]
 
     if "crit_rate" in p:
-        player.stats.crit_rate += p["crit_rate"]
+        player.stats.crit_rate = min(0.70, player.stats.crit_rate + p["crit_rate"])
 
     if "proj_bonus" in p:
         player.stats.proj_bonus += p["proj_bonus"]
@@ -191,7 +192,7 @@ def apply_shop_offer(player, offer: ShopOffer) -> str:
         player.stats.atk_mul *= p["atk_mul_factor"]
 
     if "speed_mul" in p:
-        player.stats.speed = int(player.stats.speed * (1.0 + p["speed_mul"]))
+        player.stats.speed += int(PLAYER_DEFAULT["speed"] * p["speed_mul"])
 
     if "armor" in p:
         player.stats.armor += p["armor"]

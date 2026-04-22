@@ -570,9 +570,9 @@ class BlackHoleMage(Enemy):
                     "x": player.x + math.cos(angle) * dist,
                     "y": player.y + math.sin(angle) * dist,
                     "life": 3.2,
-                    "pull_radius": 150,
+                    "pull_radius": 290,
                     "damage_radius": 28,
-                    "pull_strength": 92,
+                    "pull_strength": 190,
                     "dps": self.damage * 0.85,
                     "color": (110, 90, 220),
                 }
@@ -2060,9 +2060,9 @@ class VoidColossusBoss(Enemy):
     _STATE_DURATIONS = {"重压震荡": 4.5, "虚空喷射": 4.2, "引力坍塌": 4.8}
     _GRAVITY_BLACK_HOLE_CD = 2.75
     _GRAVITY_BLACK_HOLE_LIFE = 3.5
-    _GRAVITY_BLACK_HOLE_PULL_RADIUS = 190
+    _GRAVITY_BLACK_HOLE_PULL_RADIUS = 350 # 黑洞引力范围
     _GRAVITY_BLACK_HOLE_DAMAGE_RADIUS = 38
-    _GRAVITY_BLACK_HOLE_PULL = 145
+    _GRAVITY_BLACK_HOLE_PULL = 290 # 黑洞引力强度
     _GRAVITY_MIN_OFFSET = 145.0
     _GRAVITY_MAX_OFFSET = 240.0
     _PLAYER_SPAWN_SAFE_RADIUS = 240.0
