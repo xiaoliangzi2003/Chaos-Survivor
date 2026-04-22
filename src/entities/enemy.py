@@ -1531,7 +1531,7 @@ class GeometricDevourerBoss(Enemy):
     _CRUISE_TURN = 2.0
     _ASSAULT_TURN = 3.25
     _SEGMENT_SPACING = 24.0
-    _SEGMENT_COUNT = 24
+    _SEGMENT_COUNT = 68
     _SEGMENT_FIRE_CD = 1.05
     _GODFIRE_CD = 4.1
 
@@ -2428,7 +2428,8 @@ class SwordBoss(Enemy):
             phase = 2
             particles.burst(self.x, self.y, (255, 240, 110), count=20, speed=90, life=0.45, size=5)
 
-        self.invulnerable = False
+        # 一阶段剑将进攻时剑将可受伤；二阶段盾卫进攻时剑将无敌
+        self.invulnerable = (phase == 2)
         if phase == 1:
             self._sword_attack(dt, player, dash_cd=2.0, slash_cd=1.8, dash_spd=4.5, slash_n=3)
         elif phase == 2:
@@ -2678,19 +2679,17 @@ class ShieldBoss(Enemy):
             phase = 3
             particles.burst(self.x, self.y, (120, 200, 255), count=20, speed=90, life=0.45, size=5)
 
-        self.invulnerable = False
+        # 一阶段剑将进攻时盾卫无敌；二阶段起盾卫可受伤
+        self.invulnerable = (phase == 1)
         if phase == 1:
             self.attack_label = "护盾掩护"
             self.contact_damage = False
             self._follow_partner(dt, player)
         elif phase == 2:
-            self.invulnerable = False
             self._shield_attack(dt, player, ring_cd=2.4, wall_cd=3.0, ring_n=12, wall_n=5)
         elif phase == 3:
-            self.invulnerable = False
             self._shield_attack(dt, player, ring_cd=1.6, wall_cd=2.0, ring_n=14, wall_n=6)
         else:
-            self.invulnerable = False
             self._shield_enrage(dt, player)
 
     def _orbit_player(self, dt: float, player, target_dist: float, speed_mul: float,

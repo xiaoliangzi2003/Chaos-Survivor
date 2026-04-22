@@ -630,29 +630,41 @@ class BattleScene(Scene):
         gap = 90
         left_x = SCREEN_WIDTH // 2 - bar_w - gap // 2
         right_x = SCREEN_WIDTH // 2 + gap // 2
-        bar_y = 100
+        bar_y = 148          # 整体下移（原100）
+        name_y = bar_y - 46  # 名字与血条间距加大（间距 ~22px，原~0px）
 
         # Sword bar (left)
         s_out = pygame.Rect(left_x, bar_y, bar_w, bar_h)
         s_in = s_out.inflate(-8, -8)
         pygame.draw.rect(surface, (22, 14, 6), s_out, border_radius=12)
-        pygame.draw.rect(surface, sword.color, s_out, 3, border_radius=12)
+        s_border_color = (200, 200, 200) if sword.invulnerable else sword.color
+        pygame.draw.rect(surface, s_border_color, s_out, 3, border_radius=12)
+        s_fill = (80, 80, 80) if sword.invulnerable else sword.color
         shapes.bar(surface, s_in.x, s_in.y, s_in.width, s_in.height,
-                   sword.hp, sword.max_hp, sword.color, (65, 30, 8), border_radius=9)
+                   sword.hp, sword.max_hp, s_fill, (65, 30, 8), border_radius=9)
 
         # Shield bar (right)
         sh_out = pygame.Rect(right_x, bar_y, bar_w, bar_h)
         sh_in = sh_out.inflate(-8, -8)
         pygame.draw.rect(surface, (8, 12, 28), sh_out, border_radius=12)
-        pygame.draw.rect(surface, shield.color, sh_out, 3, border_radius=12)
+        sh_border_color = (200, 200, 200) if shield.invulnerable else shield.color
+        pygame.draw.rect(surface, sh_border_color, sh_out, 3, border_radius=12)
+        sh_fill = (80, 80, 80) if shield.invulnerable else shield.color
         shapes.bar(surface, sh_in.x, sh_in.y, sh_in.width, sh_in.height,
-                   shield.hp, shield.max_hp, shield.color, (12, 28, 68), border_radius=9)
+                   shield.hp, shield.max_hp, sh_fill, (12, 28, 68), border_radius=9)
+
+        # Invulnerable label on bar
+        invuln_surf = self._font_small.render("无敌", True, (220, 220, 220))
+        if sword.invulnerable:
+            surface.blit(invuln_surf, invuln_surf.get_rect(centerx=left_x + bar_w // 2, centery=bar_y + bar_h // 2))
+        if shield.invulnerable:
+            surface.blit(invuln_surf, invuln_surf.get_rect(centerx=right_x + bar_w // 2, centery=bar_y + bar_h // 2))
 
         # Names above bars
         s_name = self._font_boss.render(sword.boss_name, True, sword.color)
         sh_name = self._font_boss.render(shield.boss_name, True, shield.color)
-        surface.blit(s_name, (left_x + 6, 76))
-        surface.blit(sh_name, sh_name.get_rect(right=right_x + bar_w - 6, y=76))
+        surface.blit(s_name, (left_x + 6, name_y))
+        surface.blit(sh_name, sh_name.get_rect(right=right_x + bar_w - 6, y=name_y))
 
         # Phase indicator (center gap)
         duo_state = getattr(sword, "_duo_state", None)
@@ -661,13 +673,14 @@ class BattleScene(Scene):
             _phase_colors = {1: (255, 220, 80), 2: (80, 185, 255), 3: (255, 150, 50), 4: (255, 60, 55)}
             p = duo_state.phase
             p_surf = self._font_small.render(_phase_labels.get(p, ""), True, _phase_colors.get(p, WHITE))
-            surface.blit(p_surf, p_surf.get_rect(centerx=SCREEN_WIDTH // 2, y=80))
+            surface.blit(p_surf, p_surf.get_rect(centerx=SCREEN_WIDTH // 2, y=name_y))
 
         # Attack labels below bars
+        atk_y = bar_y + bar_h + 8
         s_atk = self._font_small.render(f"攻击：{sword.attack_label}", True, (255, 228, 145))
         sh_atk = self._font_small.render(f"攻击：{shield.attack_label}", True, (175, 215, 255))
-        surface.blit(s_atk, (left_x + 6, 138))
-        surface.blit(sh_atk, sh_atk.get_rect(right=right_x + bar_w - 6, y=138))
+        surface.blit(s_atk, (left_x + 6, atk_y))
+        surface.blit(sh_atk, sh_atk.get_rect(right=right_x + bar_w - 6, y=atk_y))
 
     def _active_boss(self):
         for enemy in self._enemies:
