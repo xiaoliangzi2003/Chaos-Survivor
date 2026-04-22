@@ -62,8 +62,11 @@ BESTIARY_ENTRIES: tuple[BestiaryEntry, ...] = (
     BestiaryEntry("elite_sentinel", "精英·棱镜哨兵", "精英", "弹幕炮台", "火力更密集的远程精英，会持续制造大片危险区域。", "拉远小怪后回头点杀，避免和其他远程怪叠弹幕。"),
     BestiaryEntry("elite_missile_sniper", "精英·导弹狙击者", "精英", "跟踪爆破", "蓄力后发射跟踪导弹，爆炸后还会留下持续灼烧区域。", "看见蓄力就提前拐弯，让导弹在安全位置炸开。"),
     BestiaryEntry("storm_tyrant", "风暴暴君", "Boss", "多态弹幕", "会在散射、环阵和冲锋之间切换，还会召唤帮手压场。", "预留绕场空间，优先关注它当前切换到的攻击模式。"),
-    BestiaryEntry("void_colossus", "虚空巨像", "Boss", "重压控制", "兼具弹幕、引力和范围控制能力，是偏厚重的压制型 Boss。", "不要在重力技能附近停留太久，绕大圈拉扯更安全。"),
-    BestiaryEntry("geometric_devourer", "几何吞噬者", "Boss", "长蛇追猎", "多关节的蛇形 Boss，会巡航射击、突击冲锋并在二阶段加入传送与火球。", "看准头部转向节奏，提前侧移，不要和它比直线奔跑。"),
+    BestiaryEntry("void_colossus", "虚空巨像", "Boss", "重压控制", "兼具弹幕、引力和范围控制能力，\n是偏厚重的压制型 Boss。",
+                  "不要在重力技能附近停留太久，绕大圈拉扯更安全。"),
+    BestiaryEntry("geometric_devourer", "几何吞噬者", "Boss",
+                  "长蛇追猎", "多关节的蛇形 Boss，会巡航射击、突击冲锋\n并在二阶段加入传送与火球。",
+                  "看准头部转向节奏，提前侧移，不要和它比直线奔跑。"),
 )
 
 _ENTRY_MAP = {entry.enemy_id: entry for entry in BESTIARY_ENTRIES}

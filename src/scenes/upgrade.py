@@ -48,10 +48,10 @@ class UpgradeScene(Scene):
         surface.blit(self._overlay, (0, 0))
 
         title = self._title_font.render("升级选择", True, (255, 220, 80))
-        surface.blit(title, title.get_rect(centerx=SCREEN_WIDTH // 2, y=90))
+        surface.blit(title, title.get_rect(centerx=SCREEN_WIDTH // 2, y=80))
 
         subtitle = self._body_font.render("请选择一项强化", True, WHITE)
-        surface.blit(subtitle, subtitle.get_rect(centerx=SCREEN_WIDTH // 2, y=150))
+        surface.blit(subtitle, subtitle.get_rect(centerx=SCREEN_WIDTH // 2, y=180))
 
         for idx, (option, rect) in enumerate(zip(self._options, self._card_rects())):
             border = option.color
@@ -86,4 +86,4 @@ class UpgradeScene(Scene):
         gap = 24
         total_w = card_w * len(self._options) + gap * (len(self._options) - 1)
         start_x = SCREEN_WIDTH // 2 - total_w // 2
-        return [pygame.Rect(start_x + idx * (card_w + gap), 230, card_w, card_h) for idx in range(len(self._options))]
+        return [pygame.Rect(start_x + idx * (card_w + gap), 265, card_w, card_h) for idx in range(len(self._options))]

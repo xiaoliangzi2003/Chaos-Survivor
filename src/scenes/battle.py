@@ -69,7 +69,7 @@ class BattleScene(Scene):
         self._font_large = get_font(52, bold=True)
         self._font_small = get_font(18)
         self._font_boss = get_font(24, bold=True)
-        self._font_timer = get_font(58, bold=True)
+        self._font_timer = get_font(32, bold=True)
 
         self._map = MapRenderer(rng.choice(_THEME_NAMES), seed=rng.seed())
         self._bounds = self._map.world_bounds
@@ -497,17 +497,21 @@ class BattleScene(Scene):
         shapes.bar(surface, 14, 14, 220, 18, player.hp, player.stats.max_hp, COLOR_HP_BAR, COLOR_HP_BG, border_color=(200, 80, 80), border_radius=4)
         surface.blit(fnt.render(f"生命 {int(player.hp)} / {int(player.stats.max_hp)}", True, WHITE), (14, 36))
 
-        shapes.bar(surface, 14, 60, 220, 14, player.xp, player.xp_to_next, COLOR_XP_BAR, COLOR_XP_BG, border_color=(40, 100, 180), border_radius=3)
-        surface.blit(fnt.render(f"等级 {player.level}  {int(player.xp)}/{player.xp_to_next}", True, (160, 210, 255)), (14, 78))
-        surface.blit(fnt.render(f"金币 {player.gold}", True, (255, 210, 90)), (14, 102))
+        shapes.bar(surface, 14, 68, 220, 14, player.xp, player.xp_to_next, COLOR_XP_BAR, COLOR_XP_BG, border_color=(40, 100, 180), border_radius=3)
+        surface.blit(fnt.render(f"等级 {player.level}  {int(player.xp)}/{player.xp_to_next}", True, (160, 210, 255)), (14, 86))
+        surface.blit(fnt.render(f"金币 {player.gold}", True, (255, 210, 90)), (14, 110))
 
         minutes = int(player.survive_time) // 60
         seconds = int(player.survive_time) % 60
-        surface.blit(fnt.render(f"生存 {minutes:02d}:{seconds:02d}", True, WHITE), (SCREEN_WIDTH - 160, 14))
-        surface.blit(fnt.render(f"击杀 {player.kills}", True, (230, 190, 190)), (SCREEN_WIDTH - 160, 40))
-        surface.blit(fnt.render(f"难度 {DIFFICULTY_NAMES[self.difficulty]}", True, (255, 205, 90)), (SCREEN_WIDTH - 228, 66))
-        surface.blit(fnt.render(f"敌人 {len(self._enemies)}  掉落 {self._pickups.count}", True, (210, 165, 165)), (SCREEN_WIDTH - 260, 92))
-        surface.blit(fnt.render(f"敌方弹幕 {self._enemy_bullets.count}  危险区 {self._hazards.count}", True, (235, 145, 145)), (SCREEN_WIDTH - 304, 118))
+        for _txt, _col, _y in [
+            (f"生存 {minutes:02d}:{seconds:02d}", WHITE, 14),
+            (f"击杀 {player.kills}", (230, 190, 190), 40),
+            (f"难度 {DIFFICULTY_NAMES[self.difficulty]}", (255, 205, 90), 66),
+            (f"敌人 {len(self._enemies)}  掉落 {self._pickups.count}", (210, 165, 165), 92),
+            (f"敌方弹幕 {self._enemy_bullets.count}  危险区 {self._hazards.count}", (235, 145, 145), 118),
+        ]:
+            _r = fnt.render(_txt, True, _col)
+            surface.blit(_r, _r.get_rect(right=SCREEN_WIDTH - 14, y=_y))
 
         timer_box = pygame.Rect(SCREEN_WIDTH // 2 - 170, 10, 340, 62)
         pygame.draw.rect(surface, (18, 24, 40), timer_box, border_radius=18)
@@ -524,7 +528,7 @@ class BattleScene(Scene):
         surface.blit(wave_text, wave_text.get_rect(centerx=timer_box.centerx, y=15))
 
         if self._wave_system.is_boss_wave and self._active_boss() is not None:
-            timer_text = "击败首领"
+            timer_text = "∞"
         elif self._wave_system.is_break:
             timer_text = "商店中"
         elif self._wave_system.cleanup_mode:
@@ -542,9 +546,11 @@ class BattleScene(Scene):
             tip = self._font_small.render(self._last_upgrade_text, True, (210, 225, 255))
             surface.blit(tip, tip.get_rect(centerx=SCREEN_WIDTH // 2, y=SCREEN_HEIGHT - 50))
 
-        for idx, weapon in enumerate(self._player.weapons):
+        _weapons = self._player.weapons
+        _n = len(_weapons)
+        for idx, weapon in enumerate(_weapons):
             text = self._font_small.render(f"{weapon.NAME}  {weapon.level}级", True, (210, 210, 220))
-            surface.blit(text, (14, SCREEN_HEIGHT - 110 + idx * 20))
+            surface.blit(text, (14, SCREEN_HEIGHT - 30 - (_n - 1 - idx) * 22))
 
         if self._show_victory:
             text = self._font_large.render("胜利", True, (255, 225, 120))
@@ -554,7 +560,7 @@ class BattleScene(Scene):
         boss = self._active_boss()
         if boss is None:
             return
-        outer = pygame.Rect(SCREEN_WIDTH // 2 - 260, 78, 520, 40)
+        outer = pygame.Rect(SCREEN_WIDTH // 2 - 260, 100, 520, 40)
         inner = outer.inflate(-8, -8)
         pygame.draw.rect(surface, (20, 10, 18), outer, border_radius=12)
         pygame.draw.rect(surface, boss.color, outer, 3, border_radius=12)
@@ -562,8 +568,8 @@ class BattleScene(Scene):
 
         name = self._font_boss.render(boss.boss_name, True, WHITE)
         phase = self._font_small.render(f"当前攻击：{boss.attack_label}", True, (255, 220, 235))
-        surface.blit(name, name.get_rect(centerx=SCREEN_WIDTH // 2, y=44))
-        surface.blit(phase, phase.get_rect(centerx=SCREEN_WIDTH // 2, y=121))
+        surface.blit(name, name.get_rect(centerx=SCREEN_WIDTH // 2, y=76))
+        surface.blit(phase, phase.get_rect(centerx=SCREEN_WIDTH // 2, y=144))
 
         if self._boss_intro_timer > 0:
             intro = self._font_large.render("首领来袭", True, boss.color)
