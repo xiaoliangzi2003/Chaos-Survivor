@@ -320,7 +320,7 @@ class BattleScene(Scene):
             if not enemy.alive or radius <= 0:
                 continue
             for target in self._grid.query_radius(enemy.x, enemy.y, radius):
-                if not target.alive or target is enemy:
+                if not target.alive or target is enemy or type(target) is type(enemy):
                     continue
                 dx = target.x - enemy.x
                 dy = target.y - enemy.y
@@ -450,11 +450,7 @@ class BattleScene(Scene):
     def _refresh_shop(self, current_offers=None):
         cost = refresh_cost(self._shop_refresh_count)
         if self._player.gold < cost:
-            self._shop_message = "金币不足，无法刷新"
-            new_offers = build_shop_offers(
-                self._player, self._wave_system.current_wave, count=4, locked_offers=current_offers
-            )
-            return new_offers, cost, self._shop_message
+            return current_offers or [], cost, "金币不足，无法刷新"
         self._player.gold -= cost
         self._shop_refresh_count += 1
         self._shop_message = "商店已刷新"
@@ -479,8 +475,6 @@ class BattleScene(Scene):
             color = payload.get("color", (255, 255, 255))
             x = payload.get("x", 0.0)
             y = payload.get("y", 0.0)
-            if self._hitstop_timer <= 0:
-                self._hitstop_timer = 0.022 if not is_crit else 0.035
             camera.shake(70 if not is_crit else 110, 2.5 if not killed else 4.0)
             particles.burst(x, y, color, count=8 if not killed else 16, speed=80, life=0.28, size=4)
             if killed:

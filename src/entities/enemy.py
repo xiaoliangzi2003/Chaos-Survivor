@@ -596,7 +596,7 @@ class BlackHoleMage(Enemy):
 
 class LineRaiderEnemy(Enemy):
     _BASE = dict(max_hp=86, speed=0, damage=20, radius=18, color=(255, 85, 85), xp_drop=9, gold_drop=3, knockback_resist=0.35)
-    _TELEGRAPH_TIME = 1.0
+    _TELEGRAPH_TIME = 2.0
     _WARN_HALF_WIDTH = 34.0
     _DASH_SPEED = 1880.0
     _SPAWN_MARGIN = 140.0
@@ -1530,9 +1530,9 @@ class GeometricDevourerBoss(Enemy):
     _PORTAL_COOLDOWN = 8.5
     _CRUISE_TURN = 2.0
     _ASSAULT_TURN = 3.25
-    _SEGMENT_SPACING = 24.0
     _SEGMENT_COUNT = 68
     _SEGMENT_FIRE_CD = 1.05
+    _BARRAGE_INTERVAL = 0.035
     _GODFIRE_CD = 4.1
 
     def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
@@ -1573,6 +1573,8 @@ class GeometricDevourerBoss(Enemy):
         self._segments: list[tuple[float, float]] = []
         self._segment_cache: list[tuple[float, float, float]] = []
         self._phase_transition_timer = 0.0
+        self._barrage_queue: list[dict] = []
+        self._barrage_timer = 0.0
         self._reset_segments()
 
     def update(self, dt: float, player) -> None:
@@ -1599,6 +1601,12 @@ class GeometricDevourerBoss(Enemy):
             self._update_segments(dt)
 
     def _ai(self, dt: float, player) -> None:
+        if self._barrage_queue:
+            self._barrage_timer -= dt
+            while self._barrage_timer <= 0 and self._barrage_queue:
+                self.pending_projectiles.append(self._barrage_queue.pop(0))
+                self._barrage_timer += self._BARRAGE_INTERVAL
+
         self._mode_timer -= dt
         self.vx = 0.0
         self.vy = 0.0
@@ -1725,33 +1733,41 @@ class GeometricDevourerBoss(Enemy):
 
     def _reset_segments(self) -> None:
         self._segments = []
+        cumulative = 0.0
+        prev_r = self.radius
         for idx in range(self._SEGMENT_COUNT):
-            dist = (idx + 1) * self._SEGMENT_SPACING
+            seg_r = self._segment_radius(idx)
+            cumulative += prev_r + seg_r
             self._segments.append(
                 (
-                    self.x - math.cos(self._facing) * dist,
-                    self.y - math.sin(self._facing) * dist,
+                    self.x - math.cos(self._facing) * cumulative,
+                    self.y - math.sin(self._facing) * cumulative,
                 )
             )
+            prev_r = seg_r
 
     def _update_segments(self, dt: float) -> None:
         updated: list[tuple[float, float]] = []
         prev_x, prev_y = self.x, self.y
+        prev_r = self.radius
         for idx, (sx, sy) in enumerate(self._segments):
+            seg_r = self._segment_radius(idx)
+            spacing = prev_r + seg_r
             dx = prev_x - sx
             dy = prev_y - sy
             dist = math.hypot(dx, dy)
             if dist <= 0.001:
-                tx = prev_x - math.cos(self._facing) * self._SEGMENT_SPACING
-                ty = prev_y - math.sin(self._facing) * self._SEGMENT_SPACING
+                tx = prev_x - math.cos(self._facing) * spacing
+                ty = prev_y - math.sin(self._facing) * spacing
             else:
-                tx = prev_x - dx / dist * self._SEGMENT_SPACING
-                ty = prev_y - dy / dist * self._SEGMENT_SPACING
+                tx = prev_x - dx / dist * spacing
+                ty = prev_y - dy / dist * spacing
             follow = min(1.0, dt * (12.0 - min(idx, 8) * 0.55))
             sx += (tx - sx) * follow
             sy += (ty - sy) * follow
             updated.append((sx, sy))
             prev_x, prev_y = sx, sy
+            prev_r = seg_r
         self._segments = updated
 
     def _segment_radius(self, idx: int) -> float:
@@ -1772,13 +1788,15 @@ class GeometricDevourerBoss(Enemy):
 
     def _fire_segment_barrage(self, player) -> None:
         segment_step = 1 if self._phase_two else 2
+        self._barrage_queue = []
+        self._barrage_timer = 0.0
         for idx, (sx, sy) in enumerate(self._segments):
             if idx % segment_step != 0:
                 continue
             angle = math.atan2(player.y - sy, player.x - sx)
             angle += (idx - len(self._segments) / 2) * 0.035
             speed = 270 + idx * 10 + (20 if self._phase_two else 0)
-            self.pending_projectiles.append(
+            self._barrage_queue.append(
                 {
                     "x": sx,
                     "y": sy,
