@@ -2364,7 +2364,7 @@ class _DuoState:
 class SwordBoss(Enemy):
     """裂锋剑将 — 高攻低防，负责近战与剑气远攻。"""
 
-    _BASE = dict(max_hp=2400, speed=100, damage=30, radius=30,
+    _BASE = dict(max_hp=4500, speed=120, damage=30, radius=30,
                  color=(255, 210, 50), xp_drop=80, gold_drop=24, knockback_resist=0.55)
 
     def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
@@ -2392,19 +2392,6 @@ class SwordBoss(Enemy):
         self._dash_vy = 0.0
         self._dash_dur = 0.0
 
-    def update(self, dt: float, player) -> None:
-        if not self._shield_spawned:
-            self._shield_spawned = True
-            angle = rng.uniform(0.0, math.tau)
-            self.pending_spawns.append({
-                "etype": "shield_boss",
-                "x": self.x + math.cos(angle) * 260,
-                "y": self.y + math.sin(angle) * 260,
-                "boss_rank": self._boss_rank,
-                "sword_ref": self,
-            })
-        super().update(dt, player)
-
     def _on_death(self) -> None:
         self.alive = False
         if self.partner is not None and self.partner.alive:
@@ -2423,6 +2410,17 @@ class SwordBoss(Enemy):
         particles.burst(self.x, self.y, (255, 75, 45), count=32, speed=150, life=0.65, size=7)
 
     def _ai(self, dt: float, player) -> None:
+        if not self._shield_spawned:
+            self._shield_spawned = True
+            angle = rng.uniform(0.0, math.tau)
+            self.pending_spawns.append({
+                "etype": "shield_boss",
+                "x": self.x + math.cos(angle) * 260,
+                "y": self.y + math.sin(angle) * 260,
+                "boss_rank": self._boss_rank,
+                "sword_ref": self,
+            })
+
         phase = self._duo_state.phase
 
         if phase == 1 and self.hp / self.max_hp <= 0.5:
@@ -2430,20 +2428,32 @@ class SwordBoss(Enemy):
             phase = 2
             particles.burst(self.x, self.y, (255, 240, 110), count=20, speed=90, life=0.45, size=5)
 
+        self.invulnerable = False
         if phase == 1:
-            self.invulnerable = False
             self._sword_attack(dt, player, dash_cd=2.0, slash_cd=1.8, dash_spd=4.5, slash_n=3)
         elif phase == 2:
-            self.invulnerable = True
             self.contact_damage = False
             self.attack_label = "蓄势待发"
-            self._orbit_player(dt, player, 270, 0.35)
+            self._follow_partner(dt, player)
         elif phase == 3:
-            self.invulnerable = False
             self._sword_attack(dt, player, dash_cd=1.5, slash_cd=1.3, dash_spd=5.0, slash_n=4)
         else:
-            self.invulnerable = False
             self._sword_enrage(dt, player)
+
+    def _follow_partner(self, dt: float, player, target_dist: float = 160.0) -> None:
+        anchor = self.partner if (self.partner is not None and self.partner.alive) else player
+        dx = anchor.x - self.x
+        dy = anchor.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        if dist > target_dist * 1.15:
+            self.vx = dx / dist * self.speed * 0.65
+            self.vy = dy / dist * self.speed * 0.65
+        elif dist < target_dist * 0.85:
+            self.vx = -dx / dist * self.speed * 0.45
+            self.vy = -dy / dist * self.speed * 0.45
+        else:
+            self.vx *= 0.82
+            self.vy *= 0.82
 
     def _sword_attack(self, dt: float, player, dash_cd: float, slash_cd: float,
                       dash_spd: float, slash_n: int) -> None:
@@ -2591,13 +2601,14 @@ class SwordBoss(Enemy):
             shapes.ring(surface, (255, 70, 40), sx, sy, aura_r, 2)
             shapes.ring(surface, (255, 150, 80), sx, sy, aura_r + 7, 1)
         elif phase == 2:
-            shapes.ring(surface, (180, 180, 180), sx, sy, r + 5, 1)
+            aura_r = r + 6 + math.sin(self._anim_t * 1.8) * 3
+            shapes.ring(surface, (200, 200, 100), sx, sy, aura_r, 1)
 
 
 class ShieldBoss(Enemy):
     """铁壁盾卫 — 高防低攻，负责远程弹幕防御。"""
 
-    _BASE = dict(max_hp=2900, speed=64, damage=17, radius=36,
+    _BASE = dict(max_hp=6900, speed=64, damage=17, radius=36,
                  color=(60, 145, 255), xp_drop=80, gold_drop=24, knockback_resist=0.9)
 
     def __init__(self, x: float, y: float, difficulty: int = 1, sword_ref=None) -> None:
@@ -2644,20 +2655,34 @@ class ShieldBoss(Enemy):
         self._flash_timer = 0.5
         particles.burst(self.x, self.y, (80, 55, 255), count=32, speed=150, life=0.65, size=7)
 
+    def _follow_partner(self, dt: float, player, target_dist: float = 160.0) -> None:
+        anchor = self.partner if (self.partner is not None and self.partner.alive) else player
+        dx = anchor.x - self.x
+        dy = anchor.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        if dist > target_dist * 1.15:
+            self.vx = dx / dist * self.speed * 0.65
+            self.vy = dy / dist * self.speed * 0.65
+        elif dist < target_dist * 0.85:
+            self.vx = -dx / dist * self.speed * 0.45
+            self.vy = -dy / dist * self.speed * 0.45
+        else:
+            self.vx *= 0.82
+            self.vy *= 0.82
+
     def _ai(self, dt: float, player) -> None:
         phase = self._duo_state.phase
 
         if phase == 2 and self.hp / self.max_hp <= 0.5:
             self._duo_state.phase = 3
             phase = 3
-            if self.partner is not None:
-                self.partner.invulnerable = False
             particles.burst(self.x, self.y, (120, 200, 255), count=20, speed=90, life=0.45, size=5)
 
+        self.invulnerable = False
         if phase == 1:
-            self.invulnerable = True
             self.attack_label = "护盾掩护"
-            self._orbit_player(dt, player, 200, 0.65, clockwise=True)
+            self.contact_damage = False
+            self._follow_partner(dt, player)
         elif phase == 2:
             self.invulnerable = False
             self._shield_attack(dt, player, ring_cd=2.4, wall_cd=3.0, ring_n=12, wall_n=5)
@@ -2779,16 +2804,10 @@ class ShieldBoss(Enemy):
         shapes.line(surface, glow, sx - cr, sy, sx + cr, sy, 3)
         shapes.circle(surface, glow, sx, sy, r * 0.10)
 
-        # Phase 1 invulnerability aura
+        # Phase 1 — passive guard indicator (dashed outer ring)
         if phase == 1:
-            aura_r = r + 10 + math.sin(self._anim_t * 1.4) * 5
-            aura_surf = pygame.Surface((int(aura_r * 2 + 12), int(aura_r * 2 + 12)), pygame.SRCALPHA)
-            cx = aura_surf.get_width() // 2
-            cy = aura_surf.get_height() // 2
-            pygame.draw.circle(aura_surf, (100, 180, 255, 36), (cx, cy), int(aura_r))
-            surface.blit(aura_surf, (int(sx - aura_r - 6), int(sy - aura_r - 6)))
-            shapes.ring(surface, (160, 220, 255), sx, sy, aura_r, 2)
-            shapes.ring(surface, (210, 240, 255), sx, sy, aura_r + 7, 1)
+            aura_r = r + 10 + math.sin(self._anim_t * 1.4) * 4
+            shapes.ring(surface, (100, 160, 220), sx, sy, aura_r, 1)
 
         # Enrage aura
         if phase == 4:
