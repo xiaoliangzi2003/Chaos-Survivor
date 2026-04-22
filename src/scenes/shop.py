@@ -53,10 +53,12 @@ class ShopScene(Scene):
             elif event.key in (pygame.K_RETURN, pygame.K_SPACE, pygame.K_ESCAPE):
                 self._close()
         elif event.type == pygame.MOUSEBUTTONDOWN:
+            lx, ly = self.game.scale_pos(event.pos)
+            clicked = next((i for i, r in enumerate(self._card_rects()) if r.collidepoint(lx, ly)), self._selected)
             if event.button == 1:
-                self._buy(self._selected)
+                self._buy(clicked)
             elif event.button == 3:
-                self._toggle_lock(self._selected)
+                self._toggle_lock(clicked)
 
     def update(self, dt: float) -> None:
         mx, my = self.game.get_mouse_pos()

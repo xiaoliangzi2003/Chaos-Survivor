@@ -55,26 +55,40 @@ def wrap_text(font: pygame.font.Font, text: str, max_width: int, max_lines: int 
     if not text:
         return [""]
 
-    if " " in text:
-        tokens = text.split(" ")
-        joiner = " "
-    else:
-        tokens = list(text)
-        joiner = ""
+    has_spaces = " " in text
+    words = text.split(" ") if has_spaces else [text]
 
     lines: list[str] = []
-    current = tokens[0]
-    for token in tokens[1:]:
-        trial = f"{current}{joiner}{token}" if joiner else f"{current}{token}"
+    line = ""
+
+    for wi, word in enumerate(words):
+        sep = " " if (has_spaces and line) else ""
+        trial = line + sep + word
         if font.size(trial)[0] <= max_width:
-            current = trial
+            line = trial
         else:
-            lines.append(current)
-            current = token
-            if len(lines) >= max_lines - 1:
-                break
-    lines.append(current)
-    return lines[:max_lines]
+            if line:
+                lines.append(line)
+                if len(lines) >= max_lines:
+                    return lines[:max_lines]
+                line = ""
+            if font.size(word)[0] <= max_width:
+                line = word
+            else:
+                for ch in word:
+                    trial_c = line + ch
+                    if font.size(trial_c)[0] <= max_width:
+                        line = trial_c
+                    else:
+                        if line:
+                            lines.append(line)
+                            if len(lines) >= max_lines:
+                                return lines[:max_lines]
+                        line = ch
+
+    if line and len(lines) < max_lines:
+        lines.append(line)
+    return lines[:max_lines] if lines else [""]
 
 
 def clear_cache() -> None:

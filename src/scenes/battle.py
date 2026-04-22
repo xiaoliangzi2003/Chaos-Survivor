@@ -124,6 +124,7 @@ class BattleScene(Scene):
         self._pending_shop_open = False
 
         self._red_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
+        self._death_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
         camera.update(0, 0, 0, bounds=self._bounds)
         audio_manager.play_bgm()
 
@@ -478,7 +479,8 @@ class BattleScene(Scene):
             color = payload.get("color", (255, 255, 255))
             x = payload.get("x", 0.0)
             y = payload.get("y", 0.0)
-            self._hitstop_timer = max(self._hitstop_timer, 0.022 if not is_crit else 0.035)
+            if self._hitstop_timer <= 0:
+                self._hitstop_timer = 0.022 if not is_crit else 0.035
             camera.shake(70 if not is_crit else 110, 2.5 if not killed else 4.0)
             particles.burst(x, y, color, count=8 if not killed else 16, speed=80, life=0.28, size=4)
             if killed:
@@ -510,20 +512,23 @@ class BattleScene(Scene):
         if flash <= 0:
             return
         alpha = int(flash * 170)
-        border = 55
+        border = 54
+        steps = 6
+        stride = border // steps
         self._red_overlay.fill((0, 0, 0, 0))
-        for idx in range(border):
+        for i in range(steps):
+            idx = i * stride
             current_alpha = int(alpha * (1 - idx / border))
             if current_alpha <= 0:
-                continue
-            pygame.draw.rect(self._red_overlay, (200, 20, 20, current_alpha), pygame.Rect(idx, idx, SCREEN_WIDTH - idx * 2, SCREEN_HEIGHT - idx * 2), 1)
+                break
+            pygame.draw.rect(self._red_overlay, (200, 20, 20, current_alpha),
+                             pygame.Rect(idx, idx, SCREEN_WIDTH - idx * 2, SCREEN_HEIGHT - idx * 2), stride)
         surface.blit(self._red_overlay, (0, 0))
 
     def _draw_death_overlay(self, surface: pygame.Surface) -> None:
         progress = min(1.0, self._death_delay / 2.0)
-        overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
-        overlay.fill((0, 0, 0, int(progress * 170)))
-        surface.blit(overlay, (0, 0))
+        self._death_overlay.fill((0, 0, 0, int(progress * 170)))
+        surface.blit(self._death_overlay, (0, 0))
         if progress > 0.3:
             text = self._font_large.render("战斗失败", True, RED)
             text.set_alpha(int((progress - 0.3) / 0.7 * 255))

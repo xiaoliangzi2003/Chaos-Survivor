@@ -50,12 +50,16 @@ class Game:
         self.fullscreen = (not self.fullscreen) if enabled is None else bool(enabled)
         self._apply_display_mode()
 
-    def get_mouse_pos(self) -> tuple[int, int]:
-        mx, my = pygame.mouse.get_pos()
+    def scale_pos(self, pos: tuple[int, int]) -> tuple[int, int]:
+        """Scale a window-space position to logical (game) coordinates."""
         window_w, window_h = self._window.get_size()
-        lx = int(mx * self.logical_size[0] / max(1, window_w))
-        ly = int(my * self.logical_size[1] / max(1, window_h))
-        return lx, ly
+        return (
+            int(pos[0] * self.logical_size[0] / max(1, window_w)),
+            int(pos[1] * self.logical_size[1] / max(1, window_h)),
+        )
+
+    def get_mouse_pos(self) -> tuple[int, int]:
+        return self.scale_pos(pygame.mouse.get_pos())
 
     def display_mode_label(self) -> str:
         return "全屏" if self.fullscreen else "窗口"
