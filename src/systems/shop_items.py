@@ -95,7 +95,7 @@ def build_shop_offers(
     count: int = 4,
     locked_offers: list[ShopOffer] | None = None,
 ) -> list[ShopOffer]:
-    locked = [o for o in (locked_offers or []) if o.locked]
+    locked = [o for o in (locked_offers or []) if o.locked and not o.sold]
     locked_ids = {o.offer_id for o in locked}
 
     lucky = getattr(getattr(player, "stats", None), "lucky", 0)

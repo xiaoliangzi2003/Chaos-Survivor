@@ -1572,6 +1572,7 @@ class GeometricDevourerBoss(Enemy):
         self._last_player_angle = 0.0
         self._segments: list[tuple[float, float]] = []
         self._segment_cache: list[tuple[float, float, float]] = []
+        self._phase_transition_timer = 0.0
         self._reset_segments()
 
     def update(self, dt: float, player) -> None:
@@ -1585,6 +1586,7 @@ class GeometricDevourerBoss(Enemy):
 
         if not self._phase_two and self.hp / self.max_hp <= 0.5:
             self._phase_two = True
+            self._phase_transition_timer = 1.5
             self._portal_cd = 3.2
             self._godfire_timer = 1.2
             particles.burst(self.x, self.y, (255, 180, 120), count=22, speed=95, life=0.45, size=5)
@@ -1611,7 +1613,11 @@ class GeometricDevourerBoss(Enemy):
             self._portal_logic(dt, player)
             return
 
-        self.invulnerable = False
+        if self._phase_transition_timer > 0:
+            self._phase_transition_timer = max(0.0, self._phase_transition_timer - dt)
+            self.invulnerable = True
+        else:
+            self.invulnerable = False
         if self._state == "cruise":
             self.attack_label = "\u5de1\u822a\u5f39\u5e55"
             self.contact_damage = False
@@ -2391,6 +2397,7 @@ class SwordBoss(Enemy):
         self._dash_vx = 0.0
         self._dash_vy = 0.0
         self._dash_dur = 0.0
+        self._transition_timer = 0.0
 
     def _on_death(self) -> None:
         self.alive = False
@@ -2426,10 +2433,17 @@ class SwordBoss(Enemy):
         if phase == 1 and self.hp / self.max_hp <= 0.5:
             self._duo_state.phase = 2
             phase = 2
+            self._transition_timer = 1.2
+            if self.partner is not None:
+                self.partner._transition_timer = 1.2
             particles.burst(self.x, self.y, (255, 240, 110), count=20, speed=90, life=0.45, size=5)
 
-        # 一阶段剑将进攻时剑将可受伤；二阶段盾卫进攻时剑将无敌
-        self.invulnerable = (phase == 2)
+        # 阶段转换期间双方均无敌；转换完成后按阶段分配无敌状态
+        if self._transition_timer > 0:
+            self._transition_timer = max(0.0, self._transition_timer - dt)
+            self.invulnerable = True
+        else:
+            self.invulnerable = (phase == 2)
         if phase == 1:
             self._sword_attack(dt, player, dash_cd=2.0, slash_cd=1.8, dash_spd=4.5, slash_n=3)
         elif phase == 2:
@@ -2638,6 +2652,7 @@ class ShieldBoss(Enemy):
 
         self._ring_timer = 1.6
         self._wall_timer = 2.2
+        self._transition_timer = 0.0
 
     def _on_death(self) -> None:
         self.alive = False
@@ -2677,10 +2692,17 @@ class ShieldBoss(Enemy):
         if phase == 2 and self.hp / self.max_hp <= 0.5:
             self._duo_state.phase = 3
             phase = 3
+            self._transition_timer = 1.2
+            if self.partner is not None:
+                self.partner._transition_timer = 1.2
             particles.burst(self.x, self.y, (120, 200, 255), count=20, speed=90, life=0.45, size=5)
 
-        # 一阶段剑将进攻时盾卫无敌；二阶段起盾卫可受伤
-        self.invulnerable = (phase == 1)
+        # 阶段转换期间双方均无敌；转换完成后按阶段分配无敌状态
+        if self._transition_timer > 0:
+            self._transition_timer = max(0.0, self._transition_timer - dt)
+            self.invulnerable = True
+        else:
+            self.invulnerable = (phase == 1)
         if phase == 1:
             self.attack_label = "护盾掩护"
             self.contact_damage = False
