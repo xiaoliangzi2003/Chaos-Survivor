@@ -2353,6 +2353,450 @@ class EliteSentinel(ArtilleryEnemy):
             particles.burst(self.x, self.y, (220, 150, 255), count=12, speed=50, life=0.3, size=4)
 
 
+class _DuoState:
+    """阶段共享状态，由剑将与盾卫共同持有。"""
+    __slots__ = ("phase",)
+
+    def __init__(self) -> None:
+        self.phase = 1  # 1=剑攻, 2=盾攻, 3=合击, 4=狂暴
+
+
+class SwordBoss(Enemy):
+    """裂锋剑将 — 高攻低防，负责近战与剑气远攻。"""
+
+    _BASE = dict(max_hp=2400, speed=100, damage=30, radius=30,
+                 color=(255, 210, 50), xp_drop=80, gold_drop=24, knockback_resist=0.55)
+
+    def __init__(self, x: float, y: float, difficulty: int = 1) -> None:
+        d = DIFFICULTY_SETTINGS[difficulty]
+        b = self._BASE
+        super().__init__(
+            x, y, b["max_hp"] * d["hp_mul"], b["speed"], b["damage"] * d["dmg_mul"],
+            b["radius"], b["color"],
+            max(1, int(b["xp_drop"] * d["reward_mul"])), int(b["gold_drop"] * d["reward_mul"]),
+            b["knockback_resist"],
+        )
+        self.is_boss = True
+        self.boss_name = "裂锋剑将"
+        self.attack_label = "斩击突进"
+        self.contact_damage = False
+        self.partner: "ShieldBoss | None" = None
+        self._duo_state = _DuoState()
+        self._boss_rank = 1
+        self._skip_intro = False
+        self._shield_spawned = False
+        self._dash_timer = 0.8
+        self._slash_timer = 1.0
+        self._is_dashing = False
+        self._dash_vx = 0.0
+        self._dash_vy = 0.0
+        self._dash_dur = 0.0
+
+    def update(self, dt: float, player) -> None:
+        if not self._shield_spawned:
+            self._shield_spawned = True
+            angle = rng.uniform(0.0, math.tau)
+            self.pending_spawns.append({
+                "etype": "shield_boss",
+                "x": self.x + math.cos(angle) * 260,
+                "y": self.y + math.sin(angle) * 260,
+                "boss_rank": self._boss_rank,
+                "sword_ref": self,
+            })
+        super().update(dt, player)
+
+    def _on_death(self) -> None:
+        self.alive = False
+        if self.partner is not None and self.partner.alive:
+            self.partner._enrage()
+        particles.burst(self.x, self.y, self.color, count=48, speed=195, life=1.0, size=10, gravity=80)
+        particles.burst(self.x, self.y, (255, 255, 200), count=14, speed=95, life=0.3, size=4, gravity=0)
+
+    def _enrage(self) -> None:
+        self._duo_state.phase = 4
+        self.invulnerable = False
+        self.damage *= 1.65
+        self.speed *= 1.55
+        self.boss_name = "裂锋剑将·狂暴"
+        self.color = (255, 75, 45)
+        self._flash_timer = 0.5
+        particles.burst(self.x, self.y, (255, 75, 45), count=32, speed=150, life=0.65, size=7)
+
+    def _ai(self, dt: float, player) -> None:
+        phase = self._duo_state.phase
+
+        if phase == 1 and self.hp / self.max_hp <= 0.5:
+            self._duo_state.phase = 2
+            phase = 2
+            particles.burst(self.x, self.y, (255, 240, 110), count=20, speed=90, life=0.45, size=5)
+
+        if phase == 1:
+            self.invulnerable = False
+            self._sword_attack(dt, player, dash_cd=2.0, slash_cd=1.8, dash_spd=4.5, slash_n=3)
+        elif phase == 2:
+            self.invulnerable = True
+            self.contact_damage = False
+            self.attack_label = "蓄势待发"
+            self._orbit_player(dt, player, 270, 0.35)
+        elif phase == 3:
+            self.invulnerable = False
+            self._sword_attack(dt, player, dash_cd=1.5, slash_cd=1.3, dash_spd=5.0, slash_n=4)
+        else:
+            self.invulnerable = False
+            self._sword_enrage(dt, player)
+
+    def _sword_attack(self, dt: float, player, dash_cd: float, slash_cd: float,
+                      dash_spd: float, slash_n: int) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+
+        if self._is_dashing:
+            self.contact_damage = True
+            self.attack_label = "冲锋斩击"
+            self._dash_dur -= dt
+            self.vx = self._dash_vx
+            self.vy = self._dash_vy
+            if self._dash_dur <= 0:
+                self._is_dashing = False
+                self._dash_timer = dash_cd
+                self.contact_damage = False
+        else:
+            self.contact_damage = False
+            self.attack_label = "剑气连斩"
+            if dist > 190:
+                self.vx = dx / dist * self.speed
+                self.vy = dy / dist * self.speed
+            else:
+                orbit = math.atan2(dy, dx) + math.pi / 2
+                self.vx = math.cos(orbit) * self.speed * 0.6
+                self.vy = math.sin(orbit) * self.speed * 0.6
+            self._dash_timer -= dt
+            if self._dash_timer <= 0:
+                a = math.atan2(dy, dx)
+                spd = self.speed * dash_spd
+                self._dash_vx = math.cos(a) * spd
+                self._dash_vy = math.sin(a) * spd
+                self._dash_dur = 0.33
+                self._is_dashing = True
+                particles.directional(self.x, self.y, a, 0.35, (255, 230, 100), count=9, speed=85, life=0.2, size=3)
+
+        self._slash_timer -= dt
+        if self._slash_timer <= 0:
+            self._slash_timer = slash_cd
+            base_a = math.atan2(player.y - self.y, player.x - self.x)
+            for i in range(slash_n):
+                off = (i - (slash_n - 1) / 2) * 0.22
+                a = base_a + off
+                self.pending_projectiles.append({
+                    "x": self.x, "y": self.y,
+                    "vx": math.cos(a) * 345, "vy": math.sin(a) * 345,
+                    "damage": self.damage * 0.62, "life": 2.6, "radius": 8.5,
+                    "color": (255, 235, 115), "shape": "spike",
+                    "trail": 5, "burst_count": 7,
+                })
+            particles.directional(self.x, self.y, base_a, 0.5, (255, 230, 100), count=9, speed=75, life=0.2)
+
+    def _sword_enrage(self, dt: float, player) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+
+        if self._is_dashing:
+            self.contact_damage = True
+            self.attack_label = "疾风乱刃"
+            self._dash_dur -= dt
+            self.vx = self._dash_vx
+            self.vy = self._dash_vy
+            if self._dash_dur <= 0:
+                self._is_dashing = False
+                self._dash_timer = 1.0
+                self.contact_damage = False
+        else:
+            self.contact_damage = False
+            self.vx = dx / dist * self.speed
+            self.vy = dy / dist * self.speed
+            self._dash_timer -= dt
+            if self._dash_timer <= 0:
+                a = math.atan2(dy, dx)
+                spd = self.speed * 5.8
+                self._dash_vx = math.cos(a) * spd
+                self._dash_vy = math.sin(a) * spd
+                self._dash_dur = 0.28
+                self._is_dashing = True
+                particles.directional(self.x, self.y, a, 0.4, (255, 80, 50), count=12, speed=100, life=0.22)
+
+        self._slash_timer -= dt
+        if self._slash_timer <= 0:
+            self._slash_timer = 0.9
+            self.attack_label = "疾风乱刃"
+            base_a = math.atan2(player.y - self.y, player.x - self.x)
+            for i in range(8):
+                a = base_a + math.tau * i / 8
+                self.pending_projectiles.append({
+                    "x": self.x, "y": self.y,
+                    "vx": math.cos(a) * 315, "vy": math.sin(a) * 315,
+                    "damage": self.damage * 0.52, "life": 2.8, "radius": 8.0,
+                    "color": (255, 100, 55), "shape": "spike",
+                    "trail": 5, "burst_count": 7,
+                })
+            particles.burst(self.x, self.y, (255, 80, 50), count=14, speed=80, life=0.25, size=4)
+
+    def _orbit_player(self, dt: float, player, target_dist: float, speed_mul: float) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        orbit = math.atan2(dy, dx) + math.pi / 2
+        if dist < target_dist * 0.78:
+            self.vx = -dx / dist * self.speed * speed_mul * 0.9
+            self.vy = -dy / dist * self.speed * speed_mul * 0.9
+        elif dist > target_dist * 1.24:
+            self.vx = dx / dist * self.speed * speed_mul
+            self.vy = dy / dist * self.speed * speed_mul
+        else:
+            self.vx = math.cos(orbit) * self.speed * speed_mul
+            self.vy = math.sin(orbit) * self.speed * speed_mul
+
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        r = self.radius * (1.0 + self._hit_burst * 0.18)
+        phase = self._duo_state.phase
+        color = (255, 255, 255) if flash else self.color
+        glow = (255, 100, 55) if phase == 4 else (255, 248, 160)
+
+        shapes.glow_circle(surface, color, sx, sy, r * 1.15, layers=3, alpha_start=44)
+
+        # Sword blade (tall narrow pentagon shape)
+        tip = (sx, sy - r * 1.85)
+        ml = (sx - r * 0.38, sy - r * 0.22)
+        mr = (sx + r * 0.38, sy - r * 0.22)
+        bl = (sx - r * 0.30, sy + r * 0.72)
+        br = (sx + r * 0.30, sy + r * 0.72)
+        shapes.polygon(surface, color, [tip, mr, br, bl, ml])
+        shapes.polygon(surface, glow, [tip, mr, br, bl, ml], width=2)
+
+        # Crossguard
+        gy = sy - r * 0.12
+        shapes.line(surface, glow, sx - r * 1.02, gy, sx + r * 1.02, gy, 4)
+        shapes.circle(surface, glow, sx - r * 1.02, gy, 3)
+        shapes.circle(surface, glow, sx + r * 1.02, gy, 3)
+
+        # Pommel
+        shapes.circle(surface, glow, sx, sy + r * 0.92, r * 0.18)
+
+        # Center glint
+        shapes.line(surface, (255, 255, 255), sx, sy - r * 1.7, sx, sy + r * 0.5, 1)
+
+        if phase == 4:
+            aura_r = r + 9 + math.sin(self._anim_t * 3.2) * 4
+            shapes.ring(surface, (255, 70, 40), sx, sy, aura_r, 2)
+            shapes.ring(surface, (255, 150, 80), sx, sy, aura_r + 7, 1)
+        elif phase == 2:
+            shapes.ring(surface, (180, 180, 180), sx, sy, r + 5, 1)
+
+
+class ShieldBoss(Enemy):
+    """铁壁盾卫 — 高防低攻，负责远程弹幕防御。"""
+
+    _BASE = dict(max_hp=2900, speed=64, damage=17, radius=36,
+                 color=(60, 145, 255), xp_drop=80, gold_drop=24, knockback_resist=0.9)
+
+    def __init__(self, x: float, y: float, difficulty: int = 1, sword_ref=None) -> None:
+        d = DIFFICULTY_SETTINGS[difficulty]
+        b = self._BASE
+        super().__init__(
+            x, y, b["max_hp"] * d["hp_mul"], b["speed"], b["damage"] * d["dmg_mul"],
+            b["radius"], b["color"],
+            max(1, int(b["xp_drop"] * d["reward_mul"])), int(b["gold_drop"] * d["reward_mul"]),
+            b["knockback_resist"],
+        )
+        self.is_boss = True
+        self.boss_name = "铁壁盾卫"
+        self.attack_label = "护盾掩护"
+        self.contact_damage = False
+        self._skip_intro = True
+        self._boss_rank = 1
+
+        self.partner: "SwordBoss | None" = None
+        if sword_ref is not None:
+            self.partner = sword_ref
+            self._duo_state = sword_ref._duo_state
+            sword_ref.partner = self
+        else:
+            self._duo_state = _DuoState()
+
+        self._ring_timer = 1.6
+        self._wall_timer = 2.2
+
+    def _on_death(self) -> None:
+        self.alive = False
+        if self.partner is not None and self.partner.alive:
+            self.partner._enrage()
+        particles.burst(self.x, self.y, self.color, count=50, speed=200, life=1.0, size=10, gravity=80)
+        particles.burst(self.x, self.y, (200, 230, 255), count=14, speed=95, life=0.3, size=4, gravity=0)
+
+    def _enrage(self) -> None:
+        self._duo_state.phase = 4
+        self.invulnerable = False
+        self.damage *= 1.55
+        self.speed *= 1.4
+        self.boss_name = "铁壁盾卫·狂暴"
+        self.color = (80, 55, 255)
+        self._flash_timer = 0.5
+        particles.burst(self.x, self.y, (80, 55, 255), count=32, speed=150, life=0.65, size=7)
+
+    def _ai(self, dt: float, player) -> None:
+        phase = self._duo_state.phase
+
+        if phase == 2 and self.hp / self.max_hp <= 0.5:
+            self._duo_state.phase = 3
+            phase = 3
+            if self.partner is not None:
+                self.partner.invulnerable = False
+            particles.burst(self.x, self.y, (120, 200, 255), count=20, speed=90, life=0.45, size=5)
+
+        if phase == 1:
+            self.invulnerable = True
+            self.attack_label = "护盾掩护"
+            self._orbit_player(dt, player, 200, 0.65, clockwise=True)
+        elif phase == 2:
+            self.invulnerable = False
+            self._shield_attack(dt, player, ring_cd=2.4, wall_cd=3.0, ring_n=12, wall_n=5)
+        elif phase == 3:
+            self.invulnerable = False
+            self._shield_attack(dt, player, ring_cd=1.6, wall_cd=2.0, ring_n=14, wall_n=6)
+        else:
+            self.invulnerable = False
+            self._shield_enrage(dt, player)
+
+    def _orbit_player(self, dt: float, player, target_dist: float, speed_mul: float,
+                      clockwise: bool = False) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        sign = -1.0 if clockwise else 1.0
+        orbit = math.atan2(dy, dx) + math.pi / 2 * sign
+        if dist < target_dist * 0.78:
+            self.vx = -dx / dist * self.speed * speed_mul * 0.85
+            self.vy = -dy / dist * self.speed * speed_mul * 0.85
+        elif dist > target_dist * 1.24:
+            self.vx = dx / dist * self.speed * speed_mul
+            self.vy = dy / dist * self.speed * speed_mul
+        else:
+            self.vx = math.cos(orbit) * self.speed * speed_mul
+            self.vy = math.sin(orbit) * self.speed * speed_mul
+
+    def _shield_attack(self, dt: float, player, ring_cd: float, wall_cd: float,
+                       ring_n: int, wall_n: int) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        ideal = 255.0
+        if dist < ideal * 0.72:
+            self.vx = -dx / dist * self.speed * 0.7
+            self.vy = -dy / dist * self.speed * 0.7
+        elif dist > ideal * 1.3:
+            self.vx = dx / dist * self.speed * 0.6
+            self.vy = dy / dist * self.speed * 0.6
+        else:
+            orbit = math.atan2(dy, dx) + math.pi / 2
+            self.vx = math.cos(orbit) * self.speed * 0.55
+            self.vy = math.sin(orbit) * self.speed * 0.55
+
+        self._ring_timer -= dt
+        if self._ring_timer <= 0:
+            self._ring_timer = ring_cd
+            self.attack_label = "盾击弹幕"
+            self._shoot_ring(225, self.damage * 0.7, (130, 190, 255), count=ring_n, shape="orb", radius=8, life=4.2)
+            particles.burst(self.x, self.y, (130, 185, 255), count=14, speed=62, life=0.28, size=4)
+
+        self._wall_timer -= dt
+        if self._wall_timer <= 0:
+            self._wall_timer = wall_cd
+            self.attack_label = "防线轰击"
+            self._shoot_at_player(player, 275, self.damage * 1.1, (80, 155, 255),
+                                  spread=0.48, count=wall_n, shape="bolt", radius=8, life=4.4)
+            particles.directional(self.x, self.y, math.atan2(dy, dx), 0.36,
+                                  (100, 170, 255), count=8, speed=68, life=0.2)
+
+    def _shield_enrage(self, dt: float, player) -> None:
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy) or 0.001
+        ideal = 235.0
+        if dist < ideal * 0.72:
+            self.vx = -dx / dist * self.speed * 0.82
+            self.vy = -dy / dist * self.speed * 0.82
+        elif dist > ideal * 1.25:
+            self.vx = dx / dist * self.speed * 0.75
+            self.vy = dy / dist * self.speed * 0.75
+        else:
+            orbit = math.atan2(dy, dx) + math.pi / 2
+            self.vx = math.cos(orbit) * self.speed * 0.7
+            self.vy = math.sin(orbit) * self.speed * 0.7
+
+        self._ring_timer -= dt
+        if self._ring_timer <= 0:
+            self._ring_timer = 1.1
+            self.attack_label = "无情炮击"
+            self._shoot_ring(248, self.damage * 0.82, (50, 115, 255), count=16, shape="orb", radius=9, life=4.2)
+            particles.burst(self.x, self.y, (50, 100, 255), count=18, speed=72, life=0.3, size=5)
+
+        self._wall_timer -= dt
+        if self._wall_timer <= 0:
+            self._wall_timer = 1.4
+            self.attack_label = "追踪重炮"
+            base_a = math.atan2(dy, dx)
+            for _ in range(3):
+                a = base_a + rng.uniform(-0.18, 0.18)
+                self.pending_projectiles.append({
+                    "x": self.x, "y": self.y,
+                    "vx": math.cos(a) * 205, "vy": math.sin(a) * 205,
+                    "damage": self.damage * 1.45, "life": 5.2, "radius": 12.0,
+                    "color": (80, 140, 255), "shape": "orb",
+                    "tracking": True, "turn_speed": 1.25,
+                    "trail": 6, "burst_count": 10,
+                })
+            particles.burst(self.x, self.y, (60, 110, 255), count=12, speed=80, life=0.3, size=4)
+
+    def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
+        r = self.radius * (1.0 + self._hit_burst * 0.12)
+        phase = self._duo_state.phase
+        color = (255, 255, 255) if flash else self.color
+        glow = (100, 60, 255) if phase == 4 else (160, 215, 255)
+
+        shapes.glow_circle(surface, color, sx, sy, r * 1.12, layers=3, alpha_start=42)
+
+        # Hexagonal body
+        angle = self._anim_t * 0.28
+        shapes.regular_polygon(surface, color, sx, sy, r, 6, angle)
+        shapes.regular_polygon(surface, glow, sx, sy, r, 6, angle, width=3)
+
+        # Inner circle with cross
+        shapes.circle(surface, (15, 35, 95), sx, sy, r * 0.52)
+        shapes.ring(surface, glow, sx, sy, r * 0.52, 2)
+        cr = r * 0.38
+        shapes.line(surface, glow, sx, sy - cr, sx, sy + cr, 3)
+        shapes.line(surface, glow, sx - cr, sy, sx + cr, sy, 3)
+        shapes.circle(surface, glow, sx, sy, r * 0.10)
+
+        # Phase 1 invulnerability aura
+        if phase == 1:
+            aura_r = r + 10 + math.sin(self._anim_t * 1.4) * 5
+            aura_surf = pygame.Surface((int(aura_r * 2 + 12), int(aura_r * 2 + 12)), pygame.SRCALPHA)
+            cx = aura_surf.get_width() // 2
+            cy = aura_surf.get_height() // 2
+            pygame.draw.circle(aura_surf, (100, 180, 255, 36), (cx, cy), int(aura_r))
+            surface.blit(aura_surf, (int(sx - aura_r - 6), int(sy - aura_r - 6)))
+            shapes.ring(surface, (160, 220, 255), sx, sy, aura_r, 2)
+            shapes.ring(surface, (210, 240, 255), sx, sy, aura_r + 7, 1)
+
+        # Enrage aura
+        if phase == 4:
+            aura_r = r + 11 + math.sin(self._anim_t * 3.5) * 5
+            shapes.ring(surface, (80, 60, 255), sx, sy, aura_r, 3)
+            shapes.ring(surface, (130, 95, 255), sx, sy, aura_r + 8, 1)
+
+
 _NORMAL_MAP: dict[str, type] = {
     "zombie": ZombieEnemy,
     "speeder": SpeederEnemy,
@@ -2377,6 +2821,8 @@ _NORMAL_MAP: dict[str, type] = {
     "geometric_devourer": GeometricDevourerBoss,
     "storm_tyrant": StormTyrantBoss,
     "void_colossus": VoidColossusBoss,
+    "sword_shield_duo": SwordBoss,
+    "shield_boss": ShieldBoss,
 }
 
 _ELITE_MAP: dict[str, type] = {

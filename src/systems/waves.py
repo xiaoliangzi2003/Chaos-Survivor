@@ -20,6 +20,7 @@ BOSS_POOL: tuple[str, ...] = (
     "geometric_devourer",
     "storm_tyrant",
     "void_colossus",
+    "sword_shield_duo",
 )
 
 ELITE_POOL: tuple[str, ...] = (

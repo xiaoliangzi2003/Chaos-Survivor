@@ -61,6 +61,8 @@ _BOSS_NAMES = {
     "elite_berserker": "狂怒战躯",
     "elite_assassin": "影刃追猎者",
     "elite_sentinel": "棱镜炮台",
+    "sword_shield_duo": "裂锋剑将",
+    "shield_boss": "铁壁盾卫",
 }
 _BOSS_ATTACK_LABELS = {
     "elite_summoner": "召唤压制",
@@ -240,13 +242,14 @@ class BattleScene(Scene):
             self._configure_boss(enemy, etype, boss_rank)
         self._enemies.append(enemy)
 
-        if enemy.is_boss:
+        if enemy.is_boss and not getattr(enemy, "_skip_intro", False):
             self._boss_intro_timer = 2.2
             camera.shake(SCREENSHAKE_BOSS_ENTER, 7.0)
             particles.burst(enemy.x, enemy.y, enemy.color, count=24, speed=100, life=0.5, size=6)
 
     def _configure_boss(self, enemy, etype: str, boss_rank: int) -> None:
         enemy.is_boss = True
+        enemy._boss_rank = boss_rank
         enemy.boss_name = _BOSS_NAMES.get(etype, enemy.boss_name or "首领")
         if not enemy.attack_label:
             enemy.attack_label = _BOSS_ATTACK_LABELS.get(etype, "首领压制")
@@ -567,23 +570,83 @@ class BattleScene(Scene):
             surface.blit(text, text.get_rect(centerx=SCREEN_WIDTH // 2, centery=SCREEN_HEIGHT // 2))
 
     def _draw_boss_bar(self, surface: pygame.Surface) -> None:
-        boss = self._active_boss()
-        if boss is None:
+        alive_bosses = [e for e in self._enemies if e.alive and getattr(e, "is_boss", False)]
+        if not alive_bosses:
             return
-        outer = pygame.Rect(SCREEN_WIDTH // 2 - 260, 100, 520, 40)
-        inner = outer.inflate(-8, -8)
-        pygame.draw.rect(surface, (20, 10, 18), outer, border_radius=12)
-        pygame.draw.rect(surface, boss.color, outer, 3, border_radius=12)
-        shapes.bar(surface, inner.x, inner.y, inner.width, inner.height, boss.hp, boss.max_hp, boss.color, (60, 18, 26), border_radius=9)
 
-        name = self._font_boss.render(boss.boss_name, True, WHITE)
-        phase = self._font_small.render(f"当前攻击：{boss.attack_label}", True, (255, 220, 235))
-        surface.blit(name, name.get_rect(centerx=SCREEN_WIDTH // 2, y=76))
-        surface.blit(phase, phase.get_rect(centerx=SCREEN_WIDTH // 2, y=144))
+        # Detect duo: any boss with an alive partner in enemy list
+        b0 = alive_bosses[0]
+        partner = getattr(b0, "partner", None)
+        is_duo = (partner is not None and getattr(partner, "alive", False) and partner in alive_bosses)
 
-        if self._boss_intro_timer > 0:
-            intro = self._font_large.render("首领来袭", True, boss.color)
-            surface.blit(intro, intro.get_rect(centerx=SCREEN_WIDTH // 2, centery=SCREEN_HEIGHT // 2 - 120))
+        if is_duo:
+            # Sort so sword (higher damage) is on left
+            sword = b0 if "剑" in b0.boss_name else partner
+            shield = partner if "剑" in b0.boss_name else b0
+            self._draw_duo_boss_bar(surface, sword, shield)
+            if self._boss_intro_timer > 0:
+                intro = self._font_large.render("双首领来袭", True, (255, 220, 80))
+                surface.blit(intro, intro.get_rect(centerx=SCREEN_WIDTH // 2, centery=SCREEN_HEIGHT // 2 - 120))
+        else:
+            boss = alive_bosses[0]
+            outer = pygame.Rect(SCREEN_WIDTH // 2 - 260, 100, 520, 40)
+            inner = outer.inflate(-8, -8)
+            pygame.draw.rect(surface, (20, 10, 18), outer, border_radius=12)
+            pygame.draw.rect(surface, boss.color, outer, 3, border_radius=12)
+            shapes.bar(surface, inner.x, inner.y, inner.width, inner.height,
+                       boss.hp, boss.max_hp, boss.color, (60, 18, 26), border_radius=9)
+            name = self._font_boss.render(boss.boss_name, True, WHITE)
+            atk = self._font_small.render(f"当前攻击：{boss.attack_label}", True, (255, 220, 235))
+            surface.blit(name, name.get_rect(centerx=SCREEN_WIDTH // 2, y=76))
+            surface.blit(atk, atk.get_rect(centerx=SCREEN_WIDTH // 2, y=144))
+            if self._boss_intro_timer > 0:
+                intro = self._font_large.render("首领来袭", True, boss.color)
+                surface.blit(intro, intro.get_rect(centerx=SCREEN_WIDTH // 2, centery=SCREEN_HEIGHT // 2 - 120))
+
+    def _draw_duo_boss_bar(self, surface: pygame.Surface, sword, shield) -> None:
+        bar_w = 470
+        bar_h = 34
+        gap = 90
+        left_x = SCREEN_WIDTH // 2 - bar_w - gap // 2
+        right_x = SCREEN_WIDTH // 2 + gap // 2
+        bar_y = 100
+
+        # Sword bar (left)
+        s_out = pygame.Rect(left_x, bar_y, bar_w, bar_h)
+        s_in = s_out.inflate(-8, -8)
+        pygame.draw.rect(surface, (22, 14, 6), s_out, border_radius=12)
+        pygame.draw.rect(surface, sword.color, s_out, 3, border_radius=12)
+        shapes.bar(surface, s_in.x, s_in.y, s_in.width, s_in.height,
+                   sword.hp, sword.max_hp, sword.color, (65, 30, 8), border_radius=9)
+
+        # Shield bar (right)
+        sh_out = pygame.Rect(right_x, bar_y, bar_w, bar_h)
+        sh_in = sh_out.inflate(-8, -8)
+        pygame.draw.rect(surface, (8, 12, 28), sh_out, border_radius=12)
+        pygame.draw.rect(surface, shield.color, sh_out, 3, border_radius=12)
+        shapes.bar(surface, sh_in.x, sh_in.y, sh_in.width, sh_in.height,
+                   shield.hp, shield.max_hp, shield.color, (12, 28, 68), border_radius=9)
+
+        # Names above bars
+        s_name = self._font_boss.render(sword.boss_name, True, sword.color)
+        sh_name = self._font_boss.render(shield.boss_name, True, shield.color)
+        surface.blit(s_name, (left_x + 6, 76))
+        surface.blit(sh_name, sh_name.get_rect(right=right_x + bar_w - 6, y=76))
+
+        # Phase indicator (center gap)
+        duo_state = getattr(sword, "_duo_state", None)
+        if duo_state is not None:
+            _phase_labels = {1: "阶段一·剑攻", 2: "阶段二·盾攻", 3: "阶段三·合击", 4: "最终·狂暴"}
+            _phase_colors = {1: (255, 220, 80), 2: (80, 185, 255), 3: (255, 150, 50), 4: (255, 60, 55)}
+            p = duo_state.phase
+            p_surf = self._font_small.render(_phase_labels.get(p, ""), True, _phase_colors.get(p, WHITE))
+            surface.blit(p_surf, p_surf.get_rect(centerx=SCREEN_WIDTH // 2, y=80))
+
+        # Attack labels below bars
+        s_atk = self._font_small.render(f"攻击：{sword.attack_label}", True, (255, 228, 145))
+        sh_atk = self._font_small.render(f"攻击：{shield.attack_label}", True, (175, 215, 255))
+        surface.blit(s_atk, (left_x + 6, 138))
+        surface.blit(sh_atk, sh_atk.get_rect(right=right_x + bar_w - 6, y=138))
 
     def _active_boss(self):
         for enemy in self._enemies:
