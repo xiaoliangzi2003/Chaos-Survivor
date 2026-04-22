@@ -65,6 +65,7 @@ class Player(Entity):
         self._hit_flash = 0.0
         self._hit_flash_max = 0.12
         self.screen_flash = 0.0
+        self._guardian_shields = 0
         self.just_leveled = False
         self.pending_level_ups = 0
         self.dead_timer = 0.0
@@ -122,6 +123,13 @@ class Player(Entity):
         source_y: float | None = None,
     ) -> float:
         if not self.alive or self._iframes > 0:
+            return 0.0
+
+        if self._guardian_shields > 0:
+            self._guardian_shields -= 1
+            self._iframes = _IFRAMES_DUR
+            particles.sparkle(self.x, self.y, (255, 220, 80), count=16, radius=32)
+            particles.burst(self.x, self.y, (255, 255, 180), count=8, speed=90, life=0.35, size=3)
             return 0.0
 
         if rng.chance(self.stats.dodge_rate):
