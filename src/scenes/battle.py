@@ -44,6 +44,16 @@ from src.ui.fonts import get_font
 from src.weapons import STARTING_WEAPON_IDS, create_weapon
 
 _THEME_NAMES = list(MAP_THEMES.keys())
+
+
+def _hp_color(ratio: float) -> tuple[int, int, int]:
+    ratio = max(0.0, min(1.0, ratio))
+    if ratio >= 0.5:
+        t = (ratio - 0.5) * 2
+        return (int(240 - 190 * t), 200, int(80 * t))
+    else:
+        t = ratio * 2
+        return (int(220 + 20 * t), int(50 + 150 * t), 0)
 _BOSS_NAMES = {
     "storm_tyrant": "猩红风暴主宰",
     "void_colossus": "虚空巨像",
@@ -69,7 +79,8 @@ class BattleScene(Scene):
         self._font_large = get_font(52, bold=True)
         self._font_small = get_font(18)
         self._font_boss = get_font(24, bold=True)
-        self._font_timer = get_font(32, bold=True)
+        self._font_timer = get_font(28, bold=True)
+        self._font_wave = get_font(26, bold=True)
 
         self._map = MapRenderer(rng.choice(_THEME_NAMES), seed=rng.seed())
         self._bounds = self._map.world_bounds
@@ -494,7 +505,9 @@ class BattleScene(Scene):
         player = self._player
         fnt = self._font_hud
 
-        shapes.bar(surface, 14, 14, 220, 18, player.hp, player.stats.max_hp, COLOR_HP_BAR, COLOR_HP_BG, border_color=(200, 80, 80), border_radius=4)
+        _ratio = player.hp / max(1.0, player.stats.max_hp)
+        _bar_color = _hp_color(_ratio)
+        shapes.bar(surface, 14, 14, 220, 18, player.hp, player.stats.max_hp, _bar_color, COLOR_HP_BG, border_color=(_bar_color[0] // 2, _bar_color[1] // 2 + 20, _bar_color[2] // 2), border_radius=4)
         surface.blit(fnt.render(f"生命 {int(player.hp)} / {int(player.stats.max_hp)}", True, WHITE), (14, 36))
 
         shapes.bar(surface, 14, 68, 220, 14, player.xp, player.xp_to_next, COLOR_XP_BAR, COLOR_XP_BG, border_color=(40, 100, 180), border_radius=3)
@@ -513,10 +526,7 @@ class BattleScene(Scene):
             _r = fnt.render(_txt, True, _col)
             surface.blit(_r, _r.get_rect(right=SCREEN_WIDTH - 14, y=_y))
 
-        timer_box = pygame.Rect(SCREEN_WIDTH // 2 - 170, 10, 340, 62)
-        pygame.draw.rect(surface, (18, 24, 40), timer_box, border_radius=18)
-        pygame.draw.rect(surface, (255, 214, 96), timer_box, 2, border_radius=18)
-
+        _cx = SCREEN_WIDTH // 2
         wave_label = f"第 {self._wave_system.current_wave} 波"
         if self._wave_system.is_break:
             wave_label += "  商店阶段"
@@ -524,8 +534,8 @@ class BattleScene(Scene):
             wave_label += "  Boss 战"
         elif self._wave_system.cleanup_mode:
             wave_label += "  清场中"
-        wave_text = self._font_small.render(wave_label, True, (255, 230, 140))
-        surface.blit(wave_text, wave_text.get_rect(centerx=timer_box.centerx, y=15))
+        wave_text = self._font_wave.render(wave_label, True, (255, 230, 140))
+        surface.blit(wave_text, wave_text.get_rect(centerx=_cx, y=6))
 
         if self._wave_system.is_boss_wave and self._active_boss() is not None:
             timer_text = "∞"
@@ -534,13 +544,13 @@ class BattleScene(Scene):
         elif self._wave_system.cleanup_mode:
             timer_text = "清场中"
         else:
-            timer_text = f"{self._wave_system.time_left:04.1f}"
-        timer_render = self._font_timer.render(timer_text, True, WHITE)
-        surface.blit(timer_render, timer_render.get_rect(centerx=timer_box.centerx, centery=timer_box.centery + 9))
+            timer_text = str(int(self._wave_system.time_left))
+        timer_render = self._font_timer.render(timer_text, True, (255, 55, 55))
+        surface.blit(timer_render, timer_render.get_rect(centerx=_cx, y=34))
 
         if self._wave_system.banner.timer > 0:
             banner = self._font_medium.render(self._wave_system.banner.text, True, (255, 230, 120))
-            surface.blit(banner, banner.get_rect(centerx=SCREEN_WIDTH // 2, y=126))
+            surface.blit(banner, banner.get_rect(centerx=SCREEN_WIDTH // 2, y=76))
 
         if self._last_upgrade_text:
             tip = self._font_small.render(self._last_upgrade_text, True, (210, 225, 255))

@@ -56,7 +56,7 @@ class ShopScene(Scene):
     def draw(self, surface: pygame.Surface) -> None:
         surface.blit(self._overlay, (0, 0))
 
-        title = self._title_font.render(f"商店 - 第 {self._wave} 波", True, (255, 220, 80))
+        title = self._title_font.render("商店", True, (255, 220, 80))
         surface.blit(title, title.get_rect(centerx=SCREEN_WIDTH // 2, y=56))
 
         gold = self._body_font.render(f"金币 {self._player.gold}", True, (255, 220, 120))

@@ -60,6 +60,7 @@ class Game:
     def _register_scenes(self) -> None:
         from src.scenes.battle import BattleScene
         from src.scenes.bestiary import BestiaryScene
+        from src.scenes.help import HelpScene
         from src.scenes.menu import MenuScene
         from src.scenes.pause import PauseScene
         from src.scenes.result import ResultScene
@@ -76,6 +77,7 @@ class Game:
             "settings": SettingsScene(self),
             "bestiary": BestiaryScene(self),
             "result": ResultScene(self),
+            "help": HelpScene(self),
         }
 
     def set_scene(self, name: str, **kwargs) -> None:

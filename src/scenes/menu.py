@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import math
+import random
+
 import pygame
 
 from src.core.bestiary import draw_bestiary_icon
@@ -9,6 +12,8 @@ from src.core.config import DIFFICULTY_NAMES, GOLD, GRAY, SCREEN_HEIGHT, SCREEN_
 from src.core.profile import clamp_difficulty, get_max_unlocked_difficulty
 from src.core.scene import Scene
 from src.ui.fonts import get_font
+
+_VERSION = "v0.1"
 
 
 class MenuScene(Scene):
@@ -18,12 +23,25 @@ class MenuScene(Scene):
         self._font_small = get_font(22)
         self._font_hint = get_font(17)
         self._font_icon = get_font(18, bold=True)
-        self._items = ["开始游戏", "难度", "显示模式", "配置", "退出游戏"]
+        self._items = ["开始游戏", "难度", "显示模式", "配置", "帮助", "退出游戏"]
         self._selected = 0
         self._unlocked_difficulty = get_max_unlocked_difficulty()
         preferred = kwargs.get("difficulty", getattr(self, "_difficulty", 0))
         self._difficulty = min(clamp_difficulty(preferred), self._unlocked_difficulty)
         self._bestiary_hover = False
+        self._t = 0.0
+        self._bg_orbs = [
+            {
+                "x": random.uniform(0, SCREEN_WIDTH),
+                "y": random.uniform(0, SCREEN_HEIGHT),
+                "vx": random.uniform(-18, 18),
+                "vy": random.uniform(-14, 14),
+                "r": random.uniform(28, 72),
+                "phase": random.uniform(0, math.pi * 2),
+                "hue": random.choice([(80, 120, 230), (60, 180, 255), (180, 80, 255), (255, 160, 50)]),
+            }
+            for _ in range(10)
+        ]
 
     def handle_event(self, event: pygame.event.Event) -> None:
         if event.type == pygame.KEYDOWN:
@@ -74,10 +92,24 @@ class MenuScene(Scene):
             self.game.toggle_fullscreen()
         elif choice == "配置":
             self.game.push_scene("settings")
+        elif choice == "帮助":
+            self.game.push_scene("help")
         else:
             self.game.running = False
 
     def update(self, dt: float) -> None:
+        self._t += dt
+        for orb in self._bg_orbs:
+            orb["x"] += orb["vx"] * dt
+            orb["y"] += orb["vy"] * dt
+            if orb["x"] < -120:
+                orb["x"] = SCREEN_WIDTH + 120
+            elif orb["x"] > SCREEN_WIDTH + 120:
+                orb["x"] = -120
+            if orb["y"] < -120:
+                orb["y"] = SCREEN_HEIGHT + 120
+            elif orb["y"] > SCREEN_HEIGHT + 120:
+                orb["y"] = -120
         mx, my = self.game.get_mouse_pos()
         self._bestiary_hover = self._bestiary_rect().collidepoint(mx, my)
         for idx, rect in enumerate(self._item_rects()):
@@ -89,10 +121,10 @@ class MenuScene(Scene):
         surface.fill((10, 12, 24))
         self._draw_backdrop(surface)
 
-        title = self._font_title.render("幸存者 3.0", True, GOLD)
-        surface.blit(title, title.get_rect(centerx=SCREEN_WIDTH // 2, y=88))
+        title = self._font_title.render("混乱幸存者", True, GOLD)
+        surface.blit(title, title.get_rect(centerx=SCREEN_WIDTH // 2, y=72))
 
-        panel = pygame.Rect(356, 188, 568, 352)
+        panel = pygame.Rect(356, 180, 568, 390)
         pygame.draw.rect(surface, (18, 24, 40), panel, border_radius=22)
         pygame.draw.rect(surface, (78, 90, 128), panel, 2, border_radius=22)
 
@@ -115,7 +147,7 @@ class MenuScene(Scene):
 
         unlocked_text = f"当前已解锁至：{DIFFICULTY_NAMES[self._unlocked_difficulty]}"
         unlocked = self._font_small.render(unlocked_text, True, (185, 210, 255))
-        surface.blit(unlocked, unlocked.get_rect(centerx=SCREEN_WIDTH // 2, y=584))
+        surface.blit(unlocked, unlocked.get_rect(centerx=SCREEN_WIDTH // 2, y=608))
 
         if self._unlocked_difficulty < len(DIFFICULTY_NAMES) - 1:
             next_name = DIFFICULTY_NAMES[self._unlocked_difficulty + 1]
@@ -123,39 +155,53 @@ class MenuScene(Scene):
         else:
             tip = "所有难度均已解锁。"
         tip_text = self._font_hint.render(tip, True, (150, 170, 205))
-        surface.blit(tip_text, tip_text.get_rect(centerx=SCREEN_WIDTH // 2, y=620))
+        surface.blit(tip_text, tip_text.get_rect(centerx=SCREEN_WIDTH // 2, y=638))
 
-        hint = self._font_hint.render("方向键或 WASD 选择，回车确认，B 打开图鉴，F11 切换全屏", True, (112, 122, 150))
-        surface.blit(hint, hint.get_rect(centerx=SCREEN_WIDTH // 2, y=686))
+        ver = self._font_hint.render(_VERSION, True, (120, 135, 165))
+        surface.blit(ver, ver.get_rect(right=SCREEN_WIDTH - 16, y=SCREEN_HEIGHT - 28))
 
         icon_rect = self._bestiary_rect()
         draw_bestiary_icon(surface, icon_rect, active=self._bestiary_hover)
         label_color = GOLD if self._bestiary_hover else WHITE
         label = self._font_icon.render("图鉴", True, label_color)
-        tip = self._font_hint.render("B", True, label_color)
+        tip_icon = self._font_hint.render("B", True, label_color)
         surface.blit(label, (icon_rect.right + 12, icon_rect.y + 7))
-        surface.blit(tip, (icon_rect.right + 12, icon_rect.y + 30))
+        surface.blit(tip_icon, (icon_rect.right + 12, icon_rect.y + 30))
 
     def _open_bestiary(self) -> None:
         self.game.push_scene("bestiary")
 
     def _draw_backdrop(self, surface: pygame.Surface) -> None:
+        t = self._t
+        for orb in self._bg_orbs:
+            pulse = math.sin(t * 0.9 + orb["phase"])
+            r = max(4, int(orb["r"] + pulse * 12))
+            alpha = int(14 + pulse * 7)
+            h, s, v = orb["hue"]
+            glow = pygame.Surface((r * 2 + 4, r * 2 + 4), pygame.SRCALPHA)
+            pygame.draw.circle(glow, (h, s, v, alpha), (r + 2, r + 2), r)
+            surface.blit(glow, (int(orb["x"]) - r - 2, int(orb["y"]) - r - 2))
+
         for idx in range(5):
-            radius = 90 + idx * 46
+            base_r = 90 + idx * 46
+            radius = int(base_r + math.sin(t * 0.4 + idx * 0.9) * 6)
+            alpha = int(18 + math.sin(t * 0.6 + idx * 0.7) * 8)
             ring = pygame.Surface((radius * 2 + 8, radius * 2 + 8), pygame.SRCALPHA)
-            pygame.draw.circle(ring, (80, 120, 220, 30 - idx * 4), (ring.get_width() // 2, ring.get_height() // 2), radius, 2)
+            pygame.draw.circle(ring, (80, 120, 220, alpha), (ring.get_width() // 2, ring.get_height() // 2), radius, 2)
             surface.blit(ring, (70 - idx * 18, 70 - idx * 14))
 
         glow = pygame.Surface((420, 420), pygame.SRCALPHA)
-        pygame.draw.circle(glow, (255, 185, 72, 18), (210, 210), 155)
-        pygame.draw.circle(glow, (90, 170, 255, 18), (270, 240), 132)
+        a1 = int(14 + math.sin(t * 0.5) * 6)
+        a2 = int(14 + math.sin(t * 0.7 + 1.0) * 6)
+        pygame.draw.circle(glow, (255, 185, 72, a1), (210, 210), 155)
+        pygame.draw.circle(glow, (90, 170, 255, a2), (270, 240), 132)
         surface.blit(glow, (SCREEN_WIDTH - 470, 90))
 
     def _item_rects(self) -> list[pygame.Rect]:
         width = 504
         height = 50
-        gap = 12
-        start_y = 214
+        gap = 10
+        start_y = 206
         x = SCREEN_WIDTH // 2 - width // 2
         return [pygame.Rect(x, start_y + idx * (height + gap), width, height) for idx in range(len(self._items))]
 

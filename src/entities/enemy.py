@@ -109,6 +109,11 @@ class Enemy(Entity):
             self.hp = 0
             self._on_death()
             return True
+        # hit spark
+        particles.directional(
+            self.x, self.y, angle + math.pi, math.pi * 0.7,
+            self.color, count=4, speed=75, life=0.22, size=2.5,
+        )
         return False
 
     def collision_nodes(self) -> list[tuple[float, float, float, float]]:
@@ -118,10 +123,11 @@ class Enemy(Entity):
 
     def _on_death(self) -> None:
         self.alive = False
-        burst = 34 if self.is_boss else 18
-        speed = 160 if self.is_boss else 110
-        size = 8 if self.is_boss else 5
-        particles.burst(self.x, self.y, self.color, count=burst, speed=speed, life=0.7, size=size, gravity=60)
+        burst = 44 if self.is_boss else 24
+        speed = 200 if self.is_boss else 130
+        size = 9 if self.is_boss else 6
+        particles.burst(self.x, self.y, self.color, count=burst, speed=speed, life=0.9, size=size, gravity=80)
+        particles.burst(self.x, self.y, (255, 255, 255), count=8 if self.is_boss else 5, speed=90, life=0.22, size=3.0, gravity=0)
 
     def update(self, dt: float, player) -> None:
         if not self.alive:
@@ -193,7 +199,10 @@ class Enemy(Entity):
 
     def _draw_shape(self, surface: pygame.Surface, sx: float, sy: float, flash: bool) -> None:
         color = (255, 255, 255) if flash else self.color
-        shapes.circle(surface, color, sx, sy, self.radius)
+        squeeze = math.sin(self._anim_t * 2.0) * 0.13 + self._hit_burst * 0.20
+        rx = max(2, int(self.radius * (1.0 + squeeze)))
+        ry = max(2, int(self.radius * max(0.55, 1.0 - squeeze * 0.75)))
+        pygame.draw.ellipse(surface, color, pygame.Rect(int(sx) - rx, int(sy) - ry, rx * 2, ry * 2))
 
     def _draw_hp_bar(self, surface: pygame.Surface, sx: float, sy: float) -> None:
         if self.hp >= self.max_hp or self.is_boss:
