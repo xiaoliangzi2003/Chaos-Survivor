@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from src.core.config import RARITY_COLORS
 from src.core.rng import rng
@@ -17,6 +17,7 @@ class ShopOffer:
     cost: int
     payload: dict
     sold: bool = False
+    locked: bool = False
 
     @property
     def color(self) -> tuple[int, int, int]:
@@ -26,61 +27,111 @@ class ShopOffer:
     def rarity_label(self) -> str:
         return {
             "common": "普通",
-            "uncommon": "精良",
-            "rare": "稀有",
+            "uncommon": "优秀",
+            "rare": "精良",
             "epic": "史诗",
             "legendary": "传说",
         }[self.rarity]
 
 
 _SHOP_POOL = [
-    # ── 回复类 ──────────────────────────────────────────────────────────────
-    ("heal_patch",    "战地绷带",   "立刻回复 40 点生命。",                       "common",   16, {"heal": 40}),
-    ("big_heal",      "急救血包",   "立刻回复 80 点生命。",                       "uncommon", 28, {"heal": 80}),
-    ("full_heal",     "不死药剂",   "立刻将生命回复至上限。",                     "rare",     45, {"heal_full": True}),
-    ("hp_regen",      "活泉髓液",   "每秒回复 1.5 点生命。",                      "uncommon", 30, {"hp_regen": 1.5}),
-    # ── 生存强化 ────────────────────────────────────────────────────────────
-    ("max_hp",        "巨像骨架",   "最大生命永久提高 20。",                      "common",   24, {"max_hp": 20}),
-    ("big_max_hp",    "不朽铁盾",   "最大生命提高 40，护甲提高 1。",              "rare",     42, {"max_hp": 40, "armor": 1}),
-    ("armor",         "铁壁装甲",   "护甲提高 1 点。",                            "uncommon", 25, {"armor": 1}),
-    ("big_armor",     "钢铁要塞",   "护甲提高 3 点。",                            "rare",     40, {"armor": 3}),
-    ("dodge",         "幻影步法",   "闪避率提高 8%。",                            "rare",     36, {"dodge_rate": 0.08}),
-    ("guardian_bear", "护身小熊",   "获得一次完全免伤护盾，将吸收下一次伤害。",   "epic",     50, {"guardian_shield": 1}),
-    # ── 攻击强化 ────────────────────────────────────────────────────────────
-    ("attack",        "锋刃刻印",   "伤害提高 12%。",                             "uncommon", 26, {"atk_mul": 0.12}),
-    ("big_attack",    "屠神之刃",   "伤害提高 22%。",                             "rare",     40, {"atk_mul": 0.22}),
-    ("speed",         "速射扳机",   "攻击速度提高 15%。",                         "uncommon", 24, {"atk_speed_mul": 0.15}),
-    ("big_speed",     "超频模块",   "攻击速度提高 28%。",                         "rare",     40, {"atk_speed_mul": 0.28}),
-    ("crit",          "幸运徽记",   "暴击率提高 6%。",                            "rare",     34, {"crit_rate": 0.06}),
-    ("big_crit",      "命运齿轮",   "暴击率提高 12%。",                           "epic",     52, {"crit_rate": 0.12}),
-    ("crit_damage",   "破甲锐刃",   "暴击伤害提高 25%。",                         "rare",     38, {"crit_mul": 0.25}),
-    ("projectile",    "分裂弹巢",   "额外投射物 +1。",                            "rare",     42, {"proj_bonus": 1}),
-    ("multi_proj",    "弹雨巢穴",   "额外投射物 +2。",                            "epic",     65, {"proj_bonus": 2}),
-    ("range",         "聚焦线圈",   "武器范围提高 15%。",                         "common",   20, {"range_mul": 0.15}),
-    # ── 机动强化 ────────────────────────────────────────────────────────────
-    ("move_speed",    "疾风胫甲",   "移动速度永久提高 26。",                      "uncommon", 24, {"move_speed": 26}),
-    ("big_move",      "光速腿甲",   "移动速度永久提高 45。",                      "rare",     36, {"move_speed": 45}),
-    # ── 拾取 / 金币 ─────────────────────────────────────────────────────────
-    ("pickup",        "磁暴吸环",   "拾取范围提高 28。",                          "common",   18, {"pickup_radius": 28}),
-    ("big_pickup",    "引力场核",   "拾取范围提高 60。",                          "uncommon", 28, {"pickup_radius": 60}),
-    ("gold",          "黄金钩爪",   "金币收益提高 20%。",                         "common",   18, {"gold_mul": 0.20}),
-    ("gold_magnet",   "财富法则",   "金币收益提高 40%，拾取范围提高 18。",        "uncommon", 28, {"gold_mul": 0.40, "pickup_radius": 18}),
-    ("xp_boost",      "求知渴望",   "经验获取提高 20%。",                         "common",   20, {"xp_mul": 0.20}),
-    # ── 复合 / 特殊 ─────────────────────────────────────────────────────────
-    ("speed_combo",   "风暴双刃",   "攻击速度提高 10%，移动速度提高 20。",        "uncommon", 32, {"atk_speed_mul": 0.10, "move_speed": 20}),
-    ("atk_range",     "星爆核心",   "伤害提高 8%，武器范围提高 10%。",            "uncommon", 30, {"atk_mul": 0.08, "range_mul": 0.10}),
-    ("all_rounder",   "均衡印记",   "伤害+6%，攻速+8%，移速+18，暴击+3%。",      "epic",     55, {"atk_mul": 0.06, "atk_speed_mul": 0.08, "move_speed": 18, "crit_rate": 0.03}),
-    ("glass_cannon",  "破坏者意志", "伤害提高 25%，但最大生命降低 20。",          "epic",     38, {"atk_mul": 0.25, "max_hp": -20}),
+    # (offer_id, name, description, rarity, base_cost, payload)
+    ("heal_patch",     "战地绷带",   "立刻回复 40 点生命值。",                               "common",   14, {"heal": 40}),
+    ("regen_potion",   "回复药剂",   "每秒回复 5 点生命，持续 10 秒。",                      "uncommon", 22, {"hp_regen_temp": (5.0, 10.0)}),
+    ("heart_vessel",   "心之容器",   "生命上限提升 20 点。",                                 "common",   20, {"max_hp": 20}),
+    ("phantom_cloak",  "幻影斗篷",   "闪避几率提升 8%。",                                    "rare",     36, {"dodge_rate": 0.08}),
+    ("totem_undying",  "不死图腾",   "获得一次完全免伤护盾，可吸收下一次伤害。",            "epic",     52, {"guardian_shield": 1}),
+    ("rapid_trigger",  "速射扳机",   "攻击速度提升 10%。",                                   "uncommon", 24, {"atk_speed_mul": 0.10}),
+    ("lucky_seal",     "幸运印记",   "幸运值提升 5 点，增加稀有物品出现概率。",             "uncommon", 18, {"lucky": 5}),
+    ("power_gauntlet", "暴力拳套",   "暴击几率提升 12%。",                                   "rare",     34, {"crit_rate": 0.12}),
+    ("split_nest",     "分裂弹巢",   "额外投射物 +1，但伤害降低为原来的 90%。",             "rare",     38, {"proj_bonus": 1, "atk_mul_factor": 0.9}),
+    ("wind_boots",     "疾风之靴",   "移动速度提升 10%。",                                   "uncommon", 22, {"speed_mul": 0.10}),
+    ("holy_shield",    "神圣护盾",   "防御值提升 1 点。",                                    "common",   18, {"armor": 1}),
+    ("vampire_bat",    "吸血蝙蝠",   "攻击时回复造成伤害 1% 的生命值。",                    "rare",     40, {"vampire": 0.01}),
+    ("magnet",         "吸铁石",     "拾取范围提升 40。",                                    "common",   16, {"pickup_radius": 40}),
+    ("higher_math",    "高等数学",   "经验获取提高 20%。",                                   "common",   18, {"xp_mul": 0.20}),
+    ("gold_magnet",    "吸金磁",     "金币收益提高 20%。",                                   "uncommon", 22, {"gold_mul": 0.20}),
+    ("adrenaline",     "肾上腺素",   "本波未受伤时伤害 ×150%，受伤后失效，每波重置。",      "epic",     48, {"adrenaline": True}),
+    ("voucher",        "购物券",     "获得 1 张购物券，可免费购买商店中任意商品。",          "epic",     30, {"voucher": 1}),
+    ("white_flag",     "白色旗帜",   "怪物数量减少 10%。",                                   "uncommon", 20, {"enemy_count_mul": 0.90}),
+    ("monster_bait",   "怪物诱饵",   "怪物数量增加 10%（高风险高回报）。",                  "common",    8, {"enemy_count_mul": 1.10}),
+    ("heavy_armor",    "沉重盔甲",   "防御值提升 2 点，但移动速度降低 10%。",               "uncommon", 26, {"armor": 2, "speed_mul": -0.10}),
+    ("berserker_mark", "狂战印记",   "血量越低，伤害越高（最高可达 180% 伤害）。",           "epic",     46, {"berserker": True}),
+    # ── 新物品 ──────────────────────────────────────────────────────────────────
+    ("coin_attack",    "金弹之器",   "拾取金币时 40% 概率对随机敌人造成 30 点伤害。",       "uncommon", 22, {"coin_attack": True}),
+    ("long_stick",     "长杆",       "武器攻击范围提升 20。",                               "common",   18, {"range_bonus": 20.0}),
+    ("mine_item",      "地雷",       "每 12 秒在脚下生成一枚地雷，波次间保留。",            "rare",     40, {"mine_item": True}),
+    ("prism",          "三棱镜",     "每持有 1 种武器提升 5% 伤害（当前武器数量生效）。",   "rare",     36, {"prism": True}),
+    ("turret_item",    "炮塔",       "每 12 秒生成一座自动炮塔攻击敌人，波次间保留。",      "epic",     50, {"turret_item": True}),
+    ("mushroom_item",  "毒蘑菇",     "每 30 秒生成毒蘑菇，吸引敌人并使其中毒，波次间保留。","epic",    48, {"mushroom_item": True}),
+    ("knockback_bat",  "击退棒",     "击退力提升 2 点。",                                   "common",   16, {"kb_bonus": 2.0}),
+    ("bait",           "诱饵",       "伤害提升 15%，下一波次将额外出现一只精英怪。",        "uncommon", 26, {"atk_mul": 0.15, "spawn_elite": 1}),
+    ("campfire",       "篝火",       "在原地生成篝火，站在附近时每秒回复 1 点生命值。",     "uncommon", 24, {"campfire": True}),
 ]
 
+# Rarity weights at lucky=0
+_RARITY_BASE: dict[str, float] = {
+    "common":    50.0,
+    "uncommon":  30.0,
+    "rare":      15.0,
+    "epic":       4.0,
+    "legendary":  1.0,
+}
 
-def build_shop_offers(player, wave: int, count: int = 4) -> list[ShopOffer]:
-    entries = list(_SHOP_POOL)
-    rng.shuffle(entries)
-    offers: list[ShopOffer] = []
-    for offer_id, name, desc, rarity, base_cost, payload in entries[:count]:
+
+def _rarity_weights(lucky: int) -> dict[str, float]:
+    bonus = min(lucky, 60)
+    w = dict(_RARITY_BASE)
+    w["common"]    = max(5.0, w["common"]    - bonus * 0.8)
+    w["uncommon"]  = max(5.0, w["uncommon"]  - bonus * 0.2)
+    w["rare"]      = max(10.0, w["rare"]     + bonus * 0.5)
+    w["epic"]      =           w["epic"]     + bonus * 0.3
+    w["legendary"] =           w["legendary"] + bonus * 0.2
+    return w
+
+
+def build_shop_offers(
+    player,
+    wave: int,
+    count: int = 4,
+    locked_offers: list[ShopOffer] | None = None,
+) -> list[ShopOffer]:
+    locked = [o for o in (locked_offers or []) if o.locked]
+    locked_ids = {o.offer_id for o in locked}
+
+    lucky = getattr(getattr(player, "stats", None), "lucky", 0)
+    weights = _rarity_weights(lucky)
+    weight_values = list(weights.values())
+    rarities = list(weights.keys())
+
+    # Pool grouped by rarity, excluding locked items
+    pool_by_rarity: dict[str, list] = {r: [] for r in rarities}
+    for entry in _SHOP_POOL:
+        if entry[0] not in locked_ids:
+            r = entry[3]
+            if r in pool_by_rarity:
+                pool_by_rarity[r].append(entry)
+
+    remaining = count - len(locked)
+    new_offers: list[ShopOffer] = []
+    chosen_ids: set[str] = set()
+
+    for _ in range(max(0, remaining)):
+        # Pick rarity weighted by lucky
+        picked_rarity = rng.choices(rarities, weights=weight_values, k=1)[0]
+
+        candidates = [e for e in pool_by_rarity[picked_rarity] if e[0] not in chosen_ids]
+        if not candidates:
+            # Fall back to any available entry
+            candidates = [e for e in _SHOP_POOL if e[0] not in locked_ids and e[0] not in chosen_ids]
+        if not candidates:
+            break
+
+        entry = rng.choice(candidates)
+        chosen_ids.add(entry[0])
+        offer_id, name, desc, rarity, base_cost, payload = entry
         wave_cost = max(0, wave - 1) * (2 if rarity in ("rare", "epic", "legendary") else 1)
-        offers.append(
+        new_offers.append(
             ShopOffer(
                 offer_id=offer_id,
                 name=name,
@@ -90,7 +141,8 @@ def build_shop_offers(player, wave: int, count: int = 4) -> list[ShopOffer]:
                 payload=dict(payload),
             )
         )
-    return offers
+
+    return locked + new_offers
 
 
 def refresh_cost(refresh_count: int) -> int:
@@ -98,52 +150,106 @@ def refresh_cost(refresh_count: int) -> int:
 
 
 def apply_shop_offer(player, offer: ShopOffer) -> str:
-    payload = offer.payload
+    p = offer.payload
 
-    if "heal" in payload:
-        player.heal(payload["heal"])
-        return f"{offer.name} 已购买"
+    if "heal" in p:
+        player.heal(p["heal"])
 
-    if "heal_full" in payload:
-        player.heal(player.stats.max_hp)
-        return f"{offer.name} 已购买"
+    if "hp_regen_temp" in p:
+        rate, duration = p["hp_regen_temp"]
+        player._timed_regen_buffs.append([rate, duration])
 
-    if "guardian_shield" in payload:
-        player._guardian_shields += payload["guardian_shield"]
-
-    if "max_hp" in payload:
-        delta = payload["max_hp"]
+    if "max_hp" in p:
+        delta = p["max_hp"]
         player.stats.max_hp = max(1, player.stats.max_hp + delta)
         if delta > 0:
             player.heal(delta)
         else:
             player.hp = min(player.hp, player.stats.max_hp)
 
-    if "hp_regen" in payload:
-        player.stats.hp_regen += payload["hp_regen"]
-    if "atk_mul" in payload:
-        player.stats.atk_mul += payload["atk_mul"]
-    if "atk_speed_mul" in payload:
-        player.stats.atk_speed_mul += payload["atk_speed_mul"]
-    if "move_speed" in payload:
-        player.stats.speed += payload["move_speed"]
-    if "range_mul" in payload:
-        player.stats.range_mul += payload["range_mul"]
-    if "armor" in payload:
-        player.stats.armor += payload["armor"]
-    if "pickup_radius" in payload:
-        player.stats.pickup_radius += payload["pickup_radius"]
-    if "crit_rate" in payload:
-        player.stats.crit_rate += payload["crit_rate"]
-    if "crit_mul" in payload:
-        player.stats.crit_mul += payload["crit_mul"]
-    if "proj_bonus" in payload:
-        player.stats.proj_bonus += payload["proj_bonus"]
-    if "gold_mul" in payload:
-        player.stats.gold_mul += payload["gold_mul"]
-    if "xp_mul" in payload:
-        player.stats.xp_mul += payload["xp_mul"]
-    if "dodge_rate" in payload:
-        player.stats.dodge_rate += payload["dodge_rate"]
+    if "guardian_shield" in p:
+        player._guardian_shields += p["guardian_shield"]
+
+    if "dodge_rate" in p:
+        player.stats.dodge_rate += p["dodge_rate"]
+
+    if "atk_speed_mul" in p:
+        player.stats.atk_speed_mul += p["atk_speed_mul"]
+
+    if "lucky" in p:
+        player.stats.lucky += p["lucky"]
+
+    if "crit_rate" in p:
+        player.stats.crit_rate += p["crit_rate"]
+
+    if "proj_bonus" in p:
+        player.stats.proj_bonus += p["proj_bonus"]
+
+    if "atk_mul" in p:
+        player.stats.atk_mul += p["atk_mul"]
+
+    if "atk_mul_factor" in p:
+        player.stats.atk_mul *= p["atk_mul_factor"]
+
+    if "speed_mul" in p:
+        player.stats.speed = int(player.stats.speed * (1.0 + p["speed_mul"]))
+
+    if "armor" in p:
+        player.stats.armor += p["armor"]
+
+    if "vampire" in p:
+        player.stats.vampire += p["vampire"]
+
+    if "pickup_radius" in p:
+        player.stats.pickup_radius += p["pickup_radius"]
+
+    if "xp_mul" in p:
+        player.stats.xp_mul += p["xp_mul"]
+
+    if "gold_mul" in p:
+        player.stats.gold_mul += p["gold_mul"]
+
+    if "adrenaline" in p:
+        player.stats.adrenaline = True
+        player.adrenaline_active = True
+
+    if "voucher" in p:
+        player.vouchers += p["voucher"]
+
+    if "enemy_count_mul" in p:
+        new_mul = player.stats.enemy_count_mul * p["enemy_count_mul"]
+        player.stats.enemy_count_mul = max(0.5, new_mul) if p["enemy_count_mul"] < 1.0 else new_mul
+
+    if "berserker" in p:
+        player.stats.berserker = True
+
+    if "range_bonus" in p:
+        player.stats.range_bonus += p["range_bonus"]
+
+    if "kb_bonus" in p:
+        player.stats.kb_bonus += p["kb_bonus"]
+
+    if "coin_attack" in p:
+        player.stats.coin_attack = True
+
+    if "prism" in p:
+        player.stats.prism = True
+
+    if "mine_item" in p:
+        player.stats.mine_item = True
+
+    if "turret_item" in p:
+        player.stats.turret_item = True
+
+    if "mushroom_item" in p:
+        player.stats.mushroom_item = True
+
+    if "spawn_elite" in p:
+        player.spawn_elite_count += p["spawn_elite"]
+
+    if "campfire" in p:
+        cb = getattr(player, "spawn_campfire_callback", None)
+        if cb is not None:
+            cb()
 
     return f"{offer.name} 已购买"

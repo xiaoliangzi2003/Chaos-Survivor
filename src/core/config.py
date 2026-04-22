@@ -59,6 +59,18 @@ PLAYER_DEFAULT = {
     "xp_mul": 1.0,
     "gold_mul": 1.0,
     "armor": 0,
+    "lucky": 0,
+    "vampire": 0.0,
+    "adrenaline": False,
+    "berserker": False,
+    "enemy_count_mul": 1.0,
+    "range_bonus": 0.0,
+    "kb_bonus": 0.0,
+    "coin_attack": False,
+    "prism": False,
+    "mine_item": False,
+    "turret_item": False,
+    "mushroom_item": False,
 }
 
 TOTAL_WAVES = 20

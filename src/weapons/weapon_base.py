@@ -48,13 +48,23 @@ def apply_weapon_damage(
     actual = damage * player.stats.atk_mul
     if is_crit:
         actual *= player.stats.crit_mul
+    if player.stats.adrenaline and getattr(player, "adrenaline_active", False):
+        actual *= 1.5
+    if player.stats.berserker:
+        hp_ratio = player.hp / max(1, player.stats.max_hp)
+        actual *= 1.0 + (1.0 - hp_ratio) * 0.8
+    if player.stats.prism and player.weapons:
+        actual *= 1.0 + len(player.weapons) * 0.05
 
     angle = math.atan2(enemy.y - source_y, enemy.x - source_x)
-    killed = enemy.take_damage(actual, angle, kb_force)
+    actual_kb = kb_force + getattr(player.stats, "kb_bonus", 0.0)
+    killed = enemy.take_damage(actual, angle, actual_kb)
     actual_dealt = getattr(enemy, "last_damage_taken", actual)
     if actual_dealt > 0:
         damage_numbers.add(enemy.x, enemy.y - enemy.radius - 6, actual_dealt, is_crit=is_crit)
         player.total_damage_dealt += actual_dealt
+        if player.stats.vampire > 0:
+            player.heal(actual_dealt * player.stats.vampire)
 
     feedback = getattr(player, "combat_feedback", None)
     if feedback:
@@ -119,7 +129,7 @@ class Weapon:
         return getattr(self, "damage", 10.0)
 
     def _eff_range(self, player) -> float:
-        return getattr(self, "radius", 150.0) * player.stats.range_mul
+        return getattr(self, "radius", 150.0) * player.stats.range_mul + getattr(player.stats, "range_bonus", 0.0)
 
     def _eff_proj_count(self, player) -> int:
         return getattr(self, "count", 1) + player.stats.proj_bonus

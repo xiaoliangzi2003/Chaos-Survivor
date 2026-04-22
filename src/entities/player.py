@@ -40,6 +40,18 @@ class PlayerStats:
         self.xp_mul = d["xp_mul"]
         self.gold_mul = d["gold_mul"]
         self.armor = d["armor"]
+        self.lucky = d["lucky"]
+        self.vampire = d["vampire"]
+        self.adrenaline = d["adrenaline"]
+        self.berserker = d["berserker"]
+        self.enemy_count_mul = d["enemy_count_mul"]
+        self.range_bonus = d["range_bonus"]
+        self.kb_bonus = d["kb_bonus"]
+        self.coin_attack = d["coin_attack"]
+        self.prism = d["prism"]
+        self.mine_item = d["mine_item"]
+        self.turret_item = d["turret_item"]
+        self.mushroom_item = d["mushroom_item"]
 
 
 class Player(Entity):
@@ -66,6 +78,12 @@ class Player(Entity):
         self._hit_flash_max = 0.12
         self.screen_flash = 0.0
         self._guardian_shields = 0
+        self.vouchers = 0
+        self.adrenaline_active = True
+        self._timed_regen_buffs: list[list[float]] = []
+        self.spawn_elite_count = 0
+        self.on_gold_collect = None
+        self.spawn_campfire_callback = None
         self.just_leveled = False
         self.pending_level_ups = 0
         self.dead_timer = 0.0
@@ -111,6 +129,16 @@ class Player(Entity):
         if self.stats.hp_regen > 0:
             self.hp = min(self.stats.max_hp, self.hp + self.stats.hp_regen * dt)
 
+        active_buffs = []
+        for buff in self._timed_regen_buffs:
+            rate, remaining = buff[0], buff[1]
+            elapsed = min(dt, remaining)
+            self.hp = min(self.stats.max_hp, self.hp + rate * elapsed)
+            buff[1] -= dt
+            if buff[1] > 0:
+                active_buffs.append(buff)
+        self._timed_regen_buffs = active_buffs
+
         self._iframes = max(0.0, self._iframes - dt)
         self._hit_flash = max(0.0, self._hit_flash - dt)
         self._hit_scale = max(0.0, self._hit_scale - dt * 5.0)
@@ -139,6 +167,8 @@ class Player(Entity):
         actual = max(1.0, raw_dmg - self.stats.armor)
         self.hp -= actual
         self.total_damage_taken += actual
+        if self.stats.adrenaline:
+            self.adrenaline_active = False
 
         self._iframes = _IFRAMES_DUR
         self._hit_flash = self._hit_flash_max
@@ -204,6 +234,9 @@ class Player(Entity):
     def add_weapon(self, weapon) -> None:
         if not self.has_weapon(getattr(weapon, "weapon_id", "")):
             self.weapons.append(weapon)
+
+    def on_wave_start(self) -> None:
+        self.adrenaline_active = True
 
     def _on_level_up(self) -> None:
         particles.burst(self.x, self.y, (255, 220, 60), count=18, speed=110, life=0.7, size=5)

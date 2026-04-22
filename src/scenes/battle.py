@@ -38,6 +38,7 @@ from src.systems.grid import SpatialGrid
 from src.systems.hazards import HazardSystem
 from src.systems.pickups import PickupSystem
 from src.systems.progression import apply_upgrade, build_upgrade_options
+from src.systems.deployables import DeployableSystem
 from src.systems.shop_items import apply_shop_offer, build_shop_offers, refresh_cost
 from src.systems.waves import WaveSystem
 from src.ui.fonts import get_font
@@ -98,7 +99,13 @@ class BattleScene(Scene):
         self._enemy_bullets = EnemyBulletSystem()
         self._hazards = HazardSystem()
         self._pickups = PickupSystem()
+        self._deployables = DeployableSystem()
         self._wave_system = WaveSystem(self.difficulty)
+
+        self._player.on_gold_collect = self._coin_attack_handler
+        self._player.spawn_campfire_callback = lambda: self._deployables.spawn_campfire(
+            self._player.x, self._player.y
+        )
 
         particles.clear()
         damage_numbers.clear()
@@ -110,6 +117,7 @@ class BattleScene(Scene):
         self._hitstop_timer = 0.0
         self._shop_refresh_count = 0
         self._shop_message = ""
+        self._locked_shop_offers: list = []
         self._boss_intro_timer = 0.0
         self._low_detail = False
         self._pending_shop_open = False
@@ -161,6 +169,7 @@ class BattleScene(Scene):
         self._check_player_enemy_collision()
         self._collect_dead()
         self._pickups.update(dt, self._player)
+        self._deployables.update(dt, self._player, self._enemies)
         opened_overlay = self._handle_pending_level_up()
         if not opened_overlay:
             self._handle_overlay_queue()
@@ -169,6 +178,7 @@ class BattleScene(Scene):
     def draw(self, surface: pygame.Surface) -> None:
         self._map.draw(surface, camera)
         self._hazards.draw(surface, camera)
+        self._deployables.draw(surface, camera)
         self._pickups.draw(surface, camera)
 
         visible_enemies = [enemy for enemy in self._enemies if camera.is_visible(enemy.x, enemy.y, enemy.radius + 18)]
@@ -194,6 +204,11 @@ class BattleScene(Scene):
         if step.entered_break:
             self._clear_wave_with_drops()
             self._pending_shop_open = True
+        if step.started_wave:
+            self._player.on_wave_start()
+            for _ in range(self._player.spawn_elite_count):
+                self._spawn_one(self._wave_system._choose_elite_type())
+            self._player.spawn_elite_count = 0
         for spec in step.spawns:
             if len(self._enemies) >= MAX_ENEMIES:
                 break
@@ -376,13 +391,29 @@ class BattleScene(Scene):
         self._open_shop()
         return True
 
+    def _coin_attack_handler(self) -> None:
+        if not rng.chance(0.40):
+            return
+        alive = [e for e in self._enemies if e.alive]
+        if not alive:
+            return
+        target = rng.choice(alive)
+        dmg = 30.0 * self._player.stats.atk_mul
+        target.take_damage(dmg, 0.0, 0.0)
+        particles.burst(target.x, target.y, (255, 220, 80), count=8, speed=100, life=0.35, size=3)
+
     def _apply_upgrade(self, option) -> None:
         self._last_upgrade_text = apply_upgrade(self._player, option)
         particles.sparkle(self._player.x, self._player.y, (255, 220, 80), count=10, radius=24)
 
     def _open_shop(self) -> None:
         self._shop_refresh_count = 0
-        offers = build_shop_offers(self._player, self._wave_system.current_wave, count=4)
+        offers = build_shop_offers(
+            self._player,
+            self._wave_system.current_wave,
+            count=4,
+            locked_offers=self._locked_shop_offers,
+        )
         self.game.push_scene(
             "shop",
             offers=offers,
@@ -390,53 +421,43 @@ class BattleScene(Scene):
             refresh_cost=refresh_cost(self._shop_refresh_count),
             on_buy=self._buy_shop_offer,
             on_refresh=self._refresh_shop,
+            on_close=self._on_shop_close,
             wave=self._wave_system.current_wave,
             message=self._shop_message,
         )
 
-    def _buy_shop_offer(self, offer) -> str:
-        if self._player.gold < offer.cost:
+    def _on_shop_close(self, offers: list) -> None:
+        self._locked_shop_offers = [o for o in offers if o.locked and not o.sold]
+
+    def _buy_shop_offer(self, offer, use_voucher: bool = False) -> str:
+        if use_voucher:
+            if self._player.vouchers <= 0:
+                return "没有购物券"
+            self._player.vouchers -= 1
+        elif self._player.gold < offer.cost:
             return "金币不足"
-        self._player.gold -= offer.cost
+        else:
+            self._player.gold -= offer.cost
         self._shop_message = apply_shop_offer(self._player, offer)
+        self._wave_system.player_enemy_count_mul = self._player.stats.enemy_count_mul
         particles.sparkle(self._player.x, self._player.y, offer.color, count=9, radius=24)
         return self._shop_message
 
-    def _refresh_shop(self):
+    def _refresh_shop(self, current_offers=None):
         cost = refresh_cost(self._shop_refresh_count)
         if self._player.gold < cost:
             self._shop_message = "金币不足，无法刷新"
-            return build_shop_offers(self._player, self._wave_system.current_wave, count=4), cost, self._shop_message
+            new_offers = build_shop_offers(
+                self._player, self._wave_system.current_wave, count=4, locked_offers=current_offers
+            )
+            return new_offers, cost, self._shop_message
         self._player.gold -= cost
         self._shop_refresh_count += 1
         self._shop_message = "商店已刷新"
-        return (
-            build_shop_offers(self._player, self._wave_system.current_wave, count=4),
-            refresh_cost(self._shop_refresh_count),
-            self._shop_message,
+        new_offers = build_shop_offers(
+            self._player, self._wave_system.current_wave, count=4, locked_offers=current_offers
         )
-
-    def _buy_shop_offer(self, offer) -> str:
-        if self._player.gold < offer.cost:
-            return "金币不足"
-        self._player.gold -= offer.cost
-        self._shop_message = apply_shop_offer(self._player, offer)
-        particles.sparkle(self._player.x, self._player.y, offer.color, count=9, radius=24)
-        return self._shop_message
-
-    def _refresh_shop(self):
-        cost = refresh_cost(self._shop_refresh_count)
-        if self._player.gold < cost:
-            self._shop_message = "金币不足，无法刷新"
-            return build_shop_offers(self._player, self._wave_system.current_wave, count=4), cost, self._shop_message
-        self._player.gold -= cost
-        self._shop_refresh_count += 1
-        self._shop_message = "商店已刷新"
-        return (
-            build_shop_offers(self._player, self._wave_system.current_wave, count=4),
-            refresh_cost(self._shop_refresh_count),
-            self._shop_message,
-        )
+        return new_offers, refresh_cost(self._shop_refresh_count), self._shop_message
 
     def _check_victory(self, dt: float) -> None:
         if not self._wave_system.finished:

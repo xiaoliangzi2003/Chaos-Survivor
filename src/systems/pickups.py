@@ -67,6 +67,9 @@ class Pickup:
         else:
             player.gain_gold(self.value)
             particles.sparkle(self.x, self.y, (255, 220, 100), count=5, radius=14)
+            cb = getattr(player, "on_gold_collect", None)
+            if cb is not None:
+                cb()
 
     def draw(self, surface: pygame.Surface, cam: Camera) -> None:
         if not self.alive or not cam.is_visible(self.x, self.y, self.radius + 4):

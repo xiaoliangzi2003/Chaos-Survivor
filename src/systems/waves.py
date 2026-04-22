@@ -61,6 +61,7 @@ class WaveSystem:
         self._elite_spawned = False
         self._current_boss_type: str | None = None
         self._used_bosses: set[str] = set()
+        self.player_enemy_count_mul: float = 1.0
 
     @property
     def is_break(self) -> bool:
@@ -175,7 +176,7 @@ class WaveSystem:
         return boss_type
 
     def _normal_wave_spawns(self, dt: float, alive_count: int) -> list[str]:
-        count_scale = DIFFICULTY_SETTINGS[self.difficulty]["count_mul"] * get_settings().enemy_count_mul
+        count_scale = DIFFICULTY_SETTINGS[self.difficulty]["count_mul"] * get_settings().enemy_count_mul * self.player_enemy_count_mul
         cap = int(34 + self.current_wave * 10 * count_scale)
         if alive_count >= cap:
             return []
