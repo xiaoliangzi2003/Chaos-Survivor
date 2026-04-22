@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 
+from src.audio.audio_manager import audio_manager
 from src.core.rng import rng
 from src.systems.damage_numbers import damage_numbers
 
@@ -65,6 +66,7 @@ def apply_weapon_damage(
         player.total_damage_dealt += actual_dealt
         if player.stats.vampire > 0:
             player.heal(actual_dealt * player.stats.vampire)
+        audio_manager.play_hit(enemy.x, enemy.y, player.x, player.y)
 
     feedback = getattr(player, "combat_feedback", None)
     if feedback:

@@ -57,7 +57,6 @@ _SHOP_POOL = [
     ("monster_bait",   "怪物诱饵",   "怪物数量增加 10%（高风险高回报）。",                  "common",    8, {"enemy_count_mul": 1.10}),
     ("heavy_armor",    "沉重盔甲",   "防御值提升 2 点，但移动速度降低 10%。",               "uncommon", 26, {"armor": 2, "speed_mul": -0.10}),
     ("berserker_mark", "狂战印记",   "血量越低，伤害越高（最高可达 180% 伤害）。",           "epic",     46, {"berserker": True}),
-    # ── 新物品 ──────────────────────────────────────────────────────────────────
     ("coin_attack",    "金弹之器",   "拾取金币时 40% 概率对随机敌人造成 30 点伤害。",       "uncommon", 22, {"coin_attack": True}),
     ("long_stick",     "长杆",       "武器攻击范围提升 20。",                               "common",   18, {"range_bonus": 20.0}),
     ("mine_item",      "地雷",       "每 12 秒在脚下生成一枚地雷，波次间保留。",            "rare",     40, {"mine_item": True}),

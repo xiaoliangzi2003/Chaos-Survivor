@@ -38,6 +38,7 @@ from src.systems.grid import SpatialGrid
 from src.systems.hazards import HazardSystem
 from src.systems.pickups import PickupSystem
 from src.systems.progression import apply_upgrade, build_upgrade_options
+from src.audio.audio_manager import audio_manager
 from src.systems.deployables import DeployableSystem
 from src.systems.shop_items import apply_shop_offer, build_shop_offers, refresh_cost
 from src.systems.waves import WaveSystem
@@ -124,6 +125,7 @@ class BattleScene(Scene):
 
         self._red_overlay = pygame.Surface((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.SRCALPHA)
         camera.update(0, 0, 0, bounds=self._bounds)
+        audio_manager.play_bgm()
 
     def _apply_runtime_settings(self) -> None:
         settings = get_settings()
@@ -156,6 +158,7 @@ class BattleScene(Scene):
         if not self._player.alive:
             self._death_delay += dt
             if self._death_delay >= 2.0:
+                audio_manager.stop_bgm()
                 self.game.set_scene("result", victory=False, stats=self._build_stats(), restart_kwargs={"difficulty": self.difficulty})
             return
 
@@ -465,6 +468,7 @@ class BattleScene(Scene):
         self._victory_delay += dt
         self._show_victory = True
         if self._victory_delay >= 1.2:
+            audio_manager.stop_bgm()
             self.game.set_scene("result", victory=True, stats=self._build_stats(), restart_kwargs={"difficulty": self.difficulty})
 
     def _handle_combat_feedback(self, kind: str, **payload) -> None:

@@ -6,6 +6,7 @@ import sys
 
 import pygame
 
+from src.audio.audio_manager import MUSIC_END_EVENT, audio_manager
 from src.core.camera import camera
 from src.core.config import FPS, SCREEN_HEIGHT, SCREEN_WIDTH, TITLE
 from src.core.gameplay_settings import get_settings
@@ -16,7 +17,9 @@ from src.ui.fonts import get_font
 
 class Game:
     def __init__(self, debug: bool = False) -> None:
+        audio_manager.pre_init()
         pygame.init()
+        audio_manager.post_init()
         pygame.display.set_caption(TITLE)
 
         self.debug = debug
@@ -120,8 +123,12 @@ class Game:
                 if event.type == pygame.KEYDOWN and event.key == pygame.K_F11:
                     self.toggle_fullscreen()
                     continue
+                if event.type == MUSIC_END_EVENT:
+                    audio_manager.on_music_end()
+                    continue
                 self.current_scene.handle_event(event)
 
+            audio_manager.update(dt)
             self.current_scene.update(dt)
 
             self.screen.fill((0, 0, 0))
