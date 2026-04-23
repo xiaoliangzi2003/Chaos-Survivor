@@ -12,8 +12,8 @@ MAX_WEAPON_SLOTS = len(WEAPON_ORDER)
 
 RARITY_NAMES = {
     "common": "普通",
-    "uncommon": "精良",
-    "rare": "稀有",
+    "uncommon": "优秀",
+    "rare": "精良",
     "epic": "史诗",
     "legendary": "传说",
 }

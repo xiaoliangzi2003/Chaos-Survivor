@@ -13,7 +13,7 @@ from src.core.profile import clamp_difficulty, get_max_unlocked_difficulty
 from src.core.scene import Scene
 from src.ui.fonts import get_font
 
-_VERSION = "v0.1"
+_VERSION = "alpha 0.1"
 
 
 class MenuScene(Scene):

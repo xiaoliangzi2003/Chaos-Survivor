@@ -16,6 +16,7 @@ from src.core.config import (
 from src.core.gameplay_settings import get_settings
 from src.core.rng import rng
 
+# Boss池
 BOSS_POOL: tuple[str, ...] = (
     "geometric_devourer",
     "storm_tyrant",
@@ -23,6 +24,7 @@ BOSS_POOL: tuple[str, ...] = (
     "sword_shield_duo",
 )
 
+# 精英怪池
 ELITE_POOL: tuple[str, ...] = (
     "elite_summoner",
     "elite_berserker",
@@ -31,6 +33,7 @@ ELITE_POOL: tuple[str, ...] = (
     "elite_missile_sniper",
 )
 
+BASE_ENEMY_SPAWN_COUNT = 20
 
 @dataclass(slots=True)
 class WaveBanner:
@@ -45,7 +48,7 @@ class WaveStep:
     started_wave: bool = False
     victory_ready: bool = False
 
-
+# 波次系统
 class WaveSystem:
     def __init__(self, difficulty: int) -> None:
         self.difficulty = difficulty
@@ -55,7 +58,7 @@ class WaveSystem:
         self.spawn_timer = 0.0
         self.cleanup_mode = False
         self.finished = False
-        self.banner = WaveBanner("第 1 波开始")
+        self.banner = WaveBanner("第 1 波开始") # 顶部提示文字
 
         self._boss_spawned = False
         self._elite_spawned = False
@@ -177,7 +180,7 @@ class WaveSystem:
 
     def _normal_wave_spawns(self, dt: float, alive_count: int) -> list[str]:
         count_scale = DIFFICULTY_SETTINGS[self.difficulty]["count_mul"] * get_settings().enemy_count_mul * self.player_enemy_count_mul
-        cap = int(34 + self.current_wave * 10 * count_scale)
+        cap = int(BASE_ENEMY_SPAWN_COUNT + self.current_wave * 10 * count_scale)
         if alive_count >= cap:
             return []
 

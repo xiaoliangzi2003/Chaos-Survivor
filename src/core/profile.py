@@ -1,13 +1,17 @@
 """Simple local profile storage for difficulty unlocks and bestiary progress."""
 
 from __future__ import annotations
-
 import json
 from pathlib import Path
 
 from src.core.config import DIFFICULTY_NAMES
 
-_PROFILE_PATH = Path(__file__).resolve().parents[1] / "player_profile.json"
+def get_save_path() -> Path:
+    save_dir = Path.home() / "Documents" / "Chaos Survivor"
+    save_dir.mkdir(parents=True, exist_ok=True)
+    return save_dir / "player_profile.json"
+
+_PROFILE_PATH = get_save_path()
 
 
 def _default_profile() -> dict:
@@ -32,18 +36,27 @@ def _normalize_profile(data: dict | None) -> dict:
 
 
 def load_profile() -> dict:
-    if not _PROFILE_PATH.exists():
-        return _default_profile()
+    save_path = get_save_path()
+
+    if not save_path.exists():
+        default = _default_profile()
+        save_profile(default)
+        return default
+
     try:
-        data = json.loads(_PROFILE_PATH.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError):
+        with open(save_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except:
         return _default_profile()
+
     return _normalize_profile(data)
 
 
-def save_profile(profile: dict) -> None:
-    payload = _normalize_profile(profile)
-    _PROFILE_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+def save_profile(data):
+    save_path = get_save_path()
+    data = _normalize_profile(data)
+    with open(save_path, "w", encoding="utf-8") as f:
+        json.dump(data, f, ensure_ascii=False, indent=2)
 
 
 def get_max_unlocked_difficulty() -> int:

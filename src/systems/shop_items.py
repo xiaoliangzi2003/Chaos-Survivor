@@ -37,36 +37,39 @@ class ShopOffer:
 _SHOP_POOL = [
     # (offer_id, name, description, rarity, base_cost, payload)
     ("heal_patch",     "战地绷带",   "立刻回复 40 点生命值。",                               "common",   14, {"heal": 40}),
-    ("regen_potion",   "回复药剂",   "每秒回复 5 点生命，持续 10 秒。",                      "uncommon", 22, {"hp_regen_temp": (5.0, 10.0)}),
-    ("heart_vessel",   "心之容器",   "生命上限提升 20 点。",                                 "common",   40, {"max_hp": 20}),
-    ("phantom_cloak",  "幻影斗篷",   "闪避几率提升 4%。",                                    "rare",     50, {"dodge_rate": 0.04}),
+    ("regen_potion",   "回复药剂",   "每秒回复 5 点生命，持续 10 秒。",                      "common", 22, {"hp_regen_temp": (5.0, 10.0)}),
+    ("heart_vessel",   "心之容器",   "生命上限提升 20 点。",                                 "uncommon",   40, {"max_hp": 20}),
+    ("phantom_cloak",  "幻影斗篷",   "闪避几率提升 6%。",                                    "rare",     50, {"dodge_rate": 0.06}),
     ("totem_undying",  "不死图腾",   "获得一次完全免伤护盾，可吸收下一次伤害。",            "epic",     60, {"guardian_shield": 1}),
     ("rapid_trigger",  "速射扳机",   "攻击速度提升 10%。",                                   "uncommon", 24, {"atk_speed_mul": 0.10}),
     ("lucky_seal",     "幸运印记",   "幸运值提升 5 点，增加稀有物品出现概率。",             "uncommon", 18, {"lucky": 5}),
     ("power_gauntlet", "暴力拳套",   "暴击几率提升 5%。",                                   "rare",     34, {"crit_rate": 0.05}),
-    ("split_nest",     "分裂弹巢",   "额外投射物 +1，但伤害降低为原来的 90%。",             "rare",     38, {"proj_bonus": 1, "atk_mul_factor": 0.9}),
+    ("split_nest",     "分裂弹巢",   "额外投射物 +1，但伤害降低为原来的 90%。",             "uncommon",     38, {"proj_bonus": 1,
+                                                                                                        "atk_mul_factor": 0.9}),
     ("wind_boots",     "疾风之靴",   "移动速度提升 10%。",                                   "uncommon", 22, {"speed_mul": 0.10}),
     ("holy_shield",    "神圣护盾",   "防御值提升 1 点。",                                    "common",   18, {"armor": 1}),
     ("vampire_bat",    "吸血蝙蝠",   "攻击时回复造成伤害 0.3% 的生命值。",                    "rare",     40, {"vampire": 0.003}),
-    ("magnet",         "吸铁石",     "拾取范围提升 40。",                                    "common",   24, {"pickup_radius":                                                                                                             40}),
+    ("magnet",         "吸铁石",     "拾取范围提升 40。",                                    "common",   24, {"pickup_radius": 40}),
     ("higher_math",    "高等数学",   "经验获取提高 10%。",                                   "common",   24, {"xp_mul": 0.10}),
-    ("gold_magnet",    "吸金磁",     "金币收益提高 10%。",                                   "uncommon", 22, {"gold_mul": 0.10}),
+    ("gold_magnet",    "吸金磁",     "金币收益提高 10%。",                                   "common", 22, {"gold_mul": 0.10}),
     ("adrenaline",     "肾上腺素",   "本波未受伤时伤害 ×150%，受伤后失效，每波重置。",      "epic",     48, {"adrenaline": True}),
     ("voucher",        "购物券",     "获得 1 张购物券，可免费购买商店中任意商品。",          "epic",     60, {"voucher": 1}),
-    ("white_flag",     "白色旗帜",   "怪物数量减少 10%。",                                   "uncommon", 20, {"enemy_count_mul": 0.90}),
-    ("monster_bait",   "怪物诱饵",   "怪物数量增加 10%（高风险高回报）。",                  "common",    8, {"enemy_count_mul": 1.10}),
-    ("heavy_armor",    "沉重盔甲",   "防御值提升 2 点，但移动速度降低 10%。",               "uncommon", 26, {"armor": 2, "speed_mul": -0.10}),
+    ("white_flag",     "白色旗帜",   "怪物数量减少 10%。",                                   "uncommon", 30, {"enemy_count_mul":
+                                                                                                                0.90}),
+    ("monster_bait",   "怪物诱饵",   "怪物数量增加 10%。",                  "rare",    48, {"enemy_count_mul": 1.10}),
+    ("heavy_armor",    "沉重盔甲",   "防御值提升 2 点，但移动速度降低 10%。",               "uncommon", 35, {"armor": 2, "speed_mul":
+        -0.10}),
     ("berserker_mark", "狂战印记",   "血量越低，伤害越高（最高可达 180% 伤害）。",           "epic",     46, {"berserker": True}),
-    ("coin_attack",    "金弹之器",   "拾取金币时 40% 概率对随机敌人造成 30 点伤害。",       "uncommon", 22, {"coin_attack": True}),
-    ("long_stick",     "长杆",       "武器攻击范围提升 20。",                               "common",   18, {"range_bonus": 20.0}),
+    ("coin_attack",    "金弹之器",   "拾取金币时 40% 概率对随机敌人造成 30 点伤害。",       "uncommon", 25, {"coin_attack": True}),
+    ("long_stick",     "长杆",       "武器攻击范围提升 20。",                               "common",   20, {"range_bonus": 20.0}),
     ("mine_item",      "地雷",       "每 12 秒在脚下生成一枚地雷，波次间保留。",            "rare",     40, {"mine_item": True}),
-    ("prism",          "三棱镜",     "每持有 1 种武器提升 5% 伤害（当前武器数量生效）。",   "rare",     36, {"prism": True}),
+    ("prism",          "三棱镜",     "每持有 1 种武器提升 5% 伤害（当前武器数量生效）。",   "rare",     48, {"prism": True}),
     ("turret_item",    "炮塔",       "每 12 秒生成一座自动炮塔攻击敌人，波次间保留。",      "epic",     50, {"turret_item": True}),
     ("mushroom_item",  "毒蘑菇",     "每 30 秒生成毒蘑菇，吸引敌人并使其中毒，波次间保留。","epic",    48, {"mushroom_item": True}),
     ("knockback_bat",  "击退棒",     "击退力提升 2 点。",                                   "common",   16, {"kb_bonus": 2.0}),
-    ("bait",           "诱饵",       "伤害提升 15%，下一波次将额外出现一只精英怪。",        "uncommon", 45, {"atk_mul": 0.15, "spawn_elite":
+    ("bait",           "诱饵",       "伤害提升 15%，下一波次将额外出现一只精英怪。",        "rare", 45, {"atk_mul": 0.15, "spawn_elite":
         1}),
-    ("campfire",       "篝火",       "在原地生成篝火，站在附近时每秒回复 1 点生命值。",     "uncommon", 45, {"campfire": True}),
+    ("campfire",       "篝火",       "在原地生成篝火，站在附近时每秒回复 1 点生命值。",     "rare", 45, {"campfire": True}),
 ]
 
 # Rarity weights at lucky=0

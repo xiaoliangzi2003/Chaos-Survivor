@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import os
 from dataclasses import dataclass
 import json
+import sys
 from pathlib import Path
 
-_SETTINGS_PATH = Path(__file__).resolve().parents[1] / "gameplay_settings.json"
+def get_resource_path(relative_path: str) -> str:
+    if hasattr(sys, '_MEIPASS'):
+        base_path: str = sys._MEIPASS
+    else:
+        base_path = os.path.abspath(".")
+    return os.path.join(base_path, relative_path)
 
+_SETTINGS_PATH = Path(get_resource_path("src/gameplay_settings.json"))
 
 @dataclass(frozen=True, slots=True)
 class SettingDefinition:
@@ -18,7 +26,6 @@ class SettingDefinition:
     max_value: float
     step: float
     default: float
-
 
 @dataclass(slots=True)
 class GameplaySettings:
@@ -108,16 +115,13 @@ def get_settings() -> GameplaySettings:
 
 
 def save_settings(settings: GameplaySettings | None = None) -> None:
-    target = settings or get_settings()
-    payload = _to_payload(target)
-    _SETTINGS_PATH.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    pass
 
 
 def set_setting(key: str, value: float) -> float:
     settings = get_settings()
     snapped = clamp_value(key, value)
     setattr(settings, key, snapped)
-    save_settings(settings)
     return snapped
 
 
@@ -131,5 +135,4 @@ def adjust_setting(key: str, direction: int) -> float:
 def reset_settings() -> GameplaySettings:
     global _settings
     _settings = GameplaySettings()
-    save_settings(_settings)
     return _settings

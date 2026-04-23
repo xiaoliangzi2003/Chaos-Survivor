@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import math
 import random
+import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -19,7 +20,10 @@ if TYPE_CHECKING:
     pass
 
 # ── 路径 ──────────────────────────────────────────────────────────────────────
-_ASSETS_ROOT = Path(__file__).resolve().parents[2] / "assets" / "audio"
+if getattr(sys, "frozen", False):
+    _ASSETS_ROOT = Path(sys._MEIPASS) / "assets" / "audio"
+else:
+    _ASSETS_ROOT = Path(__file__).resolve().parents[2] / "assets" / "audio"
 _BGM_DIR = _ASSETS_ROOT / "bgm"
 _SFX_DIR = _ASSETS_ROOT / "sfx"
 
